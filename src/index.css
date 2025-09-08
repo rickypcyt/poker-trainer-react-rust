@@ -1,68 +1,153 @@
-:root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+@import "tailwindcss";
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@theme {
+  --color-background: 0 0% 100%;
+  --color-foreground: 222.2 84% 4.9%;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+.dark {
+  --color-background: 222.2 84% 4.9%;
+  --color-foreground: 210 40% 98%;
 }
 
 body {
-  margin: 0;
+  @apply bg-background text-foreground antialiased;
+}
+
+/* Reusable component classes */
+.navbar {
+  @apply sticky top-0 z-20 bg-neutral-950/90 backdrop-blur border-b border-neutral-800;
+}
+
+.nav-inner {
+  @apply grid grid-cols-3 items-center px-4 sm:px-6 md:px-10 h-14 sm:h-16 max-w-screen-2xl mx-auto;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus:outline-none disabled:opacity-50 disabled:pointer-events-none h-10 px-4 py-2;
+}
+
+.btn-primary {
+  @apply bg-neutral-900 text-white hover:bg-neutral-800 active:bg-neutral-950;
+}
+
+.btn-icon {
+  @apply inline-flex items-center justify-center rounded-md h-10 w-10 text-white hover:bg-neutral-800/60 active:bg-neutral-800/80;
+}
+
+.spinner {
+  @apply inline-block h-8 w-8 border-4 border-neutral-300 border-t-neutral-900 rounded-full animate-spin;
+}
+
+.modal-backdrop {
+  @apply fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-40;
+}
+
+.modal-panel {
+  @apply bg-neutral-900 text-white rounded-xl shadow-xl border border-neutral-800 max-w-lg w-full p-6;
+}
+
+.card {
+  @apply w-20 h-28 sm:w-24 sm:h-36 md:w-28 md:h-40 lg:w-32 lg:h-48 rounded-xl select-none;
+}
+
+.card-rank {
+  @apply text-base sm:text-lg md:text-xl font-semibold leading-none tracking-tight;
+}
+
+.card-rank-bottom {
+  @apply text-base sm:text-lg md:text-xl font-semibold leading-none tracking-tight rotate-180;
+}
+
+.card-suit {
+  @apply text-3xl sm:text-4xl md:text-5xl flex items-center justify-center leading-none;
+}
+
+/* Removed wiggle animation */
+
+/* 3D flip structure */
+.card-3d {
+  perspective: 1000px;
+}
+
+.card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 600ms cubic-bezier(0.2, 0.7, 0.1, 1);
+  will-change: transform;
+}
+
+.card-inner.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.card-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  border-radius: 0.75rem; /* match rounded-xl */
+}
+
+.card-front {
+  background: transparent;
   display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.5rem; /* p-2 */
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.08), 0 1px 1px rgba(0,0,0,0.06);
+  border: 1px solid rgba(0,0,0,0.06);
+  background-color: #ffffff;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+.card-back {
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotateY(180deg);
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
+.card-back-pattern {
+  width: 100%;
+  height: 100%;
+  border-radius: 0.75rem;
+  background:
+    radial-gradient(circle at 25% 25%, rgba(255,255,255,0.08), transparent 40%),
+    radial-gradient(circle at 75% 75%, rgba(255,255,255,0.06), transparent 45%),
+    repeating-linear-gradient(135deg, rgba(59,130,246,0.18) 0 8px, rgba(59,130,246,0.10) 8px 16px),
+    linear-gradient(180deg, #0b1020, #0b1328);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05), inset 0 0 24px rgba(0,0,0,0.6);
 }
-button:hover {
-  border-color: #646cff;
+
+/* subtle sheen during shuffle */
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-120%) skewX(-12deg); opacity: 0; }
+  30% { opacity: 0.35; }
+  60% { opacity: 0.18; }
+  100% { transform: translateX(140%) skewX(-12deg); opacity: 0; }
 }
+
+.back-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.back-shimmer::after {
+  content: "";
+  position: absolute;
+  top: -20%;
+  left: -20%;
+  width: 60%;
+  height: 140%;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0) 100%);
+  filter: blur(2px);
+  animation: shimmer-sweep 900ms ease-in-out 1;
+}
+
+/* Accessibility focus styles */
 button:focus,
 button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
 }
