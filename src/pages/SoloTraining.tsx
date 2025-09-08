@@ -1,173 +1,360 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
-import type { DeckCard } from '../types/cards';
 import Navbar from '../components/Navbar';
 import PokerCard from '../components/PokerCard';
 import { SUIT_LABEL_EN } from '../constants/cards';
-// Replaced Toast with right-side action log
-import { createStandardDeck } from '../lib/deck';
-import { shuffleDeck } from '../lib/shuffle';
-
-type Stage = 'deal' | 'preflop' | 'flop' | 'turn' | 'river' | 'showdown' | 'folded' | 'gameover';
-type LogKind = 'info' | 'action' | 'deal';
-type LogEntry = { message: string; stage: Stage; kind: LogKind; time: string };
+import pokerService, { type GameState, type PlayerAction, type LogEntry, type Card } from '../lib/pokerService';
 
 const SoloTraining: React.FC = () => {
-  const freshDeck = useMemo(() => createStandardDeck(), []);
-  const [deck, setDeck] = useState<DeckCard[]>(() => shuffleDeck(freshDeck));
-  const [hole, setHole] = useState<DeckCard[]>([]);
-  const [flop, setFlop] = useState<DeckCard[]>([]);
-  const [stage, setStage] = useState<Stage>('deal');
-  const [log, setLog] = useState<LogEntry[]>([]);
+  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const logContainerRef = useRef<HTMLDivElement | null>(null);
 
-  function addLog(kind: LogKind, message: string, stageForLog?: Stage) {
-    const when = new Date();
-    const time = when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const effectiveStage = stageForLog ?? stage;
-    setLog(prev => [...prev, { message, kind, stage: effectiveStage, time }]);
-  }
+  // Helper function to check if a card should be highlighted
+  const isCardHighlighted = (card: Card): boolean => {
+    if (!gameState?.hand_evaluation?.highlighted_cards) return false;
+    return gameState.hand_evaluation.highlighted_cards.some(
+      highlightedCard => 
+        highlightedCard.suit === card.suit && highlightedCard.rank === card.rank
+    );
+  };
 
-  function stageLabel(s: Stage): string {
-    switch (s) {
-      case 'deal': return 'Deal';
-      case 'preflop': return 'Pre-Flop';
-      case 'flop': return 'Flop';
-      case 'turn': return 'Turn';
-      case 'river': return 'River';
-      case 'showdown': return 'Showdown';
-      case 'folded': return 'Folded';
-      case 'gameover': return 'Game Over';
-      default: return s;
-    }
-  }
+  // Initialize game on component mount
+  useEffect(() => {
+    initializeGame();
+  }, []);
 
-  function stageBadgeClass(s: Stage): string {
-    switch (s) {
-      case 'deal': return 'bg-neutral-700/80 text-neutral-200 border-neutral-600/60';
-      case 'preflop': return 'bg-indigo-600/30 text-indigo-200 border-indigo-600/40';
-      case 'flop': return 'bg-green-600/30 text-green-200 border-green-600/40';
-      case 'turn': return 'bg-yellow-600/30 text-yellow-200 border-yellow-600/40';
-      case 'river': return 'bg-rose-600/30 text-rose-200 border-rose-600/40';
-      case 'showdown': return 'bg-blue-600/30 text-blue-200 border-blue-600/40';
-      case 'folded': return 'bg-red-600/30 text-red-200 border-red-600/40';
-      case 'gameover': return 'bg-neutral-800 text-neutral-200 border-neutral-700';
-      default: return 'bg-neutral-700/80 text-neutral-200 border-neutral-600/60';
-    }
-  }
-
-  function resetHand() {
-    const newDeck = shuffleDeck(createStandardDeck());
-    setDeck(newDeck);
-    setHole([]);
-    setFlop([]);
-    setStage('deal');
-    addLog('info', 'New hand started', 'deal');
-  }
-
-  function dealHole() {
-    if (deck.length < 2) {
-      resetHand();
-      return;
-    }
-    const [c1, c2, ...rest] = deck;
-    setHole([c1, c2]);
-    setDeck(rest);
-    setStage('preflop');
-    addLog('deal', `Start hand: ${c1.rank} of ${SUIT_LABEL_EN[c1.suit]} and ${c2.rank} of ${SUIT_LABEL_EN[c2.suit]}`, 'preflop');
-  }
-
-  function onFold() {
-    addLog('action', 'Action: Fold', 'preflop');
-    setStage('gameover');
-    addLog('info', 'Game ended', 'gameover');
-  }
-
-  function onCall() {
-    addLog('action', 'Action: Call', 'preflop');
-    if (deck.length < 3) {
-      resetHand();
-      return;
-    }
-    const [f1, f2, f3, ...rest] = deck;
-    setFlop([f1, f2, f3]);
-    setDeck(rest);
-    setStage('flop');
-    addLog('deal', `Flop: ${f1.rank} of ${SUIT_LABEL_EN[f1.suit]}, ${f2.rank} of ${SUIT_LABEL_EN[f2.suit]}, ${f3.rank} of ${SUIT_LABEL_EN[f3.suit]}`, 'flop');
-  }
-
-  function onRaise() {
-    addLog('action', 'Action: Raise', 'preflop');
-  }
-
-  React.useEffect(() => {
-    if (stage === 'deal') {
-      dealHole();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage]);
-
-  const isShuffling = false;
-  const logContainerRef = React.useRef<HTMLDivElement | null>(null);
-  React.useEffect(() => {
+  // Auto-scroll logs to bottom
+  useEffect(() => {
     const el = logContainerRef.current;
     if (el) {
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     }
-  }, [log]);
+  }, [gameState?.logs]);
+
+  const initializeGame = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const newGame = await pokerService.createGame();
+      setGameState(newGame);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create game');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePlayerAction = async (action: PlayerAction) => {
+    if (!gameState) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+      const updatedGame = await pokerService.playerAction(gameState.game_id, action);
+      setGameState(updatedGame);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to process action');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetGame = async () => {
+    if (!gameState) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+      const resetGame = await pokerService.resetGame(gameState.game_id);
+      setGameState(resetGame);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset game');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const stageLabel = (stage: string): string => {
+    switch (stage) {
+      case 'Deal': return 'Deal';
+      case 'PreFlop': return 'Pre-Flop';
+      case 'Flop': return 'Flop';
+      case 'Turn': return 'Turn';
+      case 'River': return 'River';
+      case 'Showdown': return 'Showdown';
+      case 'Folded': return 'Folded';
+      case 'GameOver': return 'Game Over';
+      default: return stage;
+    }
+  };
+
+  const stageBadgeClass = (stage: string): string => {
+    switch (stage) {
+      case 'Deal': return 'bg-neutral-700/80 text-neutral-200 border-neutral-600/60';
+      case 'PreFlop': return 'bg-indigo-600/30 text-indigo-200 border-indigo-600/40';
+      case 'Flop': return 'bg-green-600/30 text-green-200 border-green-600/40';
+      case 'Turn': return 'bg-yellow-600/30 text-yellow-200 border-yellow-600/40';
+      case 'River': return 'bg-rose-600/30 text-rose-200 border-rose-600/40';
+      case 'Showdown': return 'bg-blue-600/30 text-blue-200 border-blue-600/40';
+      case 'Folded': return 'bg-red-600/30 text-red-200 border-red-600/40';
+      case 'GameOver': return 'bg-neutral-800 text-neutral-200 border-neutral-700';
+      default: return 'bg-neutral-700/80 text-neutral-200 border-neutral-600/60';
+    }
+  };
+
+  const logKindIcon = (kind: string): string => {
+    switch (kind) {
+      case 'Tip': return '💡';
+      case 'Action': return '🎯';
+      case 'Deal': return '🃏';
+      case 'Info': return 'ℹ️';
+      default: return '📝';
+    }
+  };
+
+  const isShuffling = false;
+
+  if (loading && !gameState) {
+    return (
+      <div className="min-h-screen bg-green-700 flex items-center justify-center">
+        <div className="text-white text-xl">🎮 Creating new game...</div>
+      </div>
+    );
+  }
+
+  if (error && !gameState) {
+    return (
+      <div className="min-h-screen bg-green-700 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-300 text-xl mb-4">❌ Error: {error}</div>
+          <button 
+            className="btn btn-primary" 
+            onClick={initializeGame}
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!gameState) {
+    return (
+      <div className="min-h-screen bg-green-700 flex items-center justify-center">
+        <div className="text-white text-xl">🎮 Initializing...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-green-700">
-      <Navbar onShuffle={resetHand} actionLabel="New Hand" />
+      <Navbar onShuffle={handleResetGame} actionLabel="New Hand" />
       <div className="max-w-6xl mx-auto px-4 py-6 md:pr-96">
         <div className="flex flex-col min-h-[calc(100vh-7rem)]">
           <h2 className="text-white text-2xl font-bold mb-4">Solo Training</h2>
 
-          <div className="flex-1 flex flex-col items-center justify-center gap-8">
-            <div className="bg-white/10 rounded-lg border border-white/20 p-4 w-full max-w-xl">
-              <h3 className="text-white font-semibold mb-3 text-center">Board</h3>
-              <div className="flex justify-center gap-3">
-                {flop.map((c, idx) => (
-                  <PokerCard key={`flop-${idx}`} suit={c.suit} rank={c.rank} isShuffling={isShuffling} />
+          {error && (
+            <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-3 mb-4">
+              <div className="text-red-200">❌ {error}</div>
+            </div>
+          )}
+
+          <div className="flex-1 flex flex-col items-center justify-center gap-6">
+            {/* Board - Flop + Turn + River */}
+            <div className="bg-white/10 rounded-lg border border-white/20 p-6 w-full max-w-5xl">
+              <h3 className="text-white font-semibold mb-4 text-center text-lg">Board</h3>
+              <div className="flex justify-center gap-4">
+                {/* Flop cards */}
+                {gameState.board.slice(0, 3).map((card, idx) => (
+                  <div key={`flop-${idx}`} className="flex flex-col items-center">
+                    <PokerCard 
+                      suit={card.suit} 
+                      rank={card.rank} 
+                      isShuffling={isShuffling}
+                      isHighlighted={isCardHighlighted(card)}
+                    />
+                    <span className="text-white/70 text-sm mt-2 font-medium">Flop</span>
+                  </div>
+                ))}
+                
+                {/* Turn card */}
+                {gameState.board.length >= 4 && (
+                  <div className="flex flex-col items-center">
+                    <PokerCard 
+                      suit={gameState.board[3].suit} 
+                      rank={gameState.board[3].rank} 
+                      isShuffling={isShuffling}
+                      isHighlighted={isCardHighlighted(gameState.board[3])}
+                    />
+                    <span className="text-white/70 text-sm mt-2 font-medium">Turn</span>
+                  </div>
+                )}
+                
+                {/* River card */}
+                {gameState.board.length >= 5 && (
+                  <div className="flex flex-col items-center">
+                    <PokerCard 
+                      suit={gameState.board[4].suit} 
+                      rank={gameState.board[4].rank} 
+                      isShuffling={isShuffling}
+                      isHighlighted={isCardHighlighted(gameState.board[4])}
+                    />
+                    <span className="text-white/70 text-sm mt-2 font-medium">River</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Your Hand */}
+            <div className="bg-white/10 rounded-lg border border-white/20 p-6 w-full max-w-2xl">
+              <h3 className="text-white font-semibold mb-4 text-center text-lg">Your Hand</h3>
+              <div className="flex justify-center gap-4">
+                {gameState.hole_cards.map((card, idx) => (
+                  <div key={`hole-${idx}`} className="flex flex-col items-center">
+                    <PokerCard 
+                      suit={card.suit} 
+                      rank={card.rank} 
+                      isShuffling={isShuffling}
+                      isHighlighted={isCardHighlighted(card)}
+                    />
+                    <span className="text-white/70 text-sm mt-2 font-medium">Hole Card {idx + 1}</span>
+                  </div>
                 ))}
               </div>
             </div>
 
-            <div className="bg-white/10 rounded-lg border border-white/20 p-4 w-full max-w-xl">
-              <h3 className="text-white font-semibold mb-3 text-center">Your Hand</h3>
-              <div className="flex justify-center gap-3">
-                {hole.map((c, idx) => (
-                  <PokerCard key={`hole-${idx}`} suit={c.suit} rank={c.rank} isShuffling={isShuffling} />
-                ))}
+            {/* Burned Cards - What Would Have Been */}
+            {gameState.burned_cards && gameState.burned_cards.length > 0 && (
+              <div className="bg-white/10 rounded-lg border border-white/20 p-6 w-full max-w-5xl">
+                <h3 className="text-white font-semibold mb-4 text-center text-lg">Burned Cards (What Would Have Been)</h3>
+                <div className="flex justify-center gap-4">
+                  {/* Flop burn cards */}
+                  {gameState.burned_cards.length >= 3 && (
+                    <>
+                      {gameState.burned_cards.slice(0, 3).map((card, idx) => (
+                        <div key={`flop-burn-${idx}`} className="flex flex-col items-center">
+                          <PokerCard 
+                            suit={card.suit} 
+                            rank={card.rank} 
+                            isShuffling={isShuffling} 
+                          />
+                          <span className="text-white/70 text-sm mt-2 font-medium">Flop Burn</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  
+                  {/* Turn burn card */}
+                  {gameState.burned_cards.length >= 4 && (
+                    <div className="flex flex-col items-center">
+                      <PokerCard 
+                        suit={gameState.burned_cards[3].suit} 
+                        rank={gameState.burned_cards[3].rank} 
+                        isShuffling={isShuffling} 
+                      />
+                      <span className="text-white/70 text-sm mt-2 font-medium">Turn Burn</span>
+                    </div>
+                  )}
+                  
+                  {/* River burn card */}
+                  {gameState.burned_cards.length >= 5 && (
+                    <div className="flex flex-col items-center">
+                      <PokerCard 
+                        suit={gameState.burned_cards[4].suit} 
+                        rank={gameState.burned_cards[4].rank} 
+                        isShuffling={isShuffling} 
+                      />
+                      <span className="text-white/70 text-sm mt-2 font-medium">River Burn</span>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Hand Evaluation Display */}
+            {gameState.hand_evaluation && (
+              <div className="bg-gradient-to-r from-yellow-500/20 to-orange-500/20 rounded-lg border border-yellow-400/50 p-6 w-full max-w-2xl">
+                <h3 className="text-yellow-200 font-bold mb-3 text-center text-xl">
+                  🏆 {gameState.hand_evaluation.combination_type}
+                </h3>
+                <div className="text-yellow-100 text-center">
+                  <p className="text-lg font-semibold mb-2">
+                    {gameState.hand_evaluation.combination_type} Detected!
+                  </p>
+                  <p className="text-sm opacity-90">
+                    {gameState.hand_evaluation.highlighted_cards.length} card(s) highlighted above
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-center gap-4 pt-2">
-              <button className="btn btn-danger btn-lg" onClick={onFold} disabled={stage !== 'preflop'}>Fold</button>
-              <button className="btn btn-neutral btn-lg" onClick={onCall} disabled={stage !== 'preflop'}>Call</button>
-              <button className="btn btn-success btn-lg" onClick={onRaise} disabled={stage !== 'preflop'}>Raise</button>
+              <button 
+                className="btn btn-danger btn-lg" 
+                onClick={() => handlePlayerAction('Fold')} 
+                disabled={gameState.stage !== 'PreFlop' || gameState.stage === 'Deal' || loading}
+              >
+                {loading ? '...' : 'Fold'}
+              </button>
+              <button 
+                className="btn btn-neutral btn-lg" 
+                onClick={() => handlePlayerAction('Call')} 
+                disabled={gameState.stage !== 'PreFlop' || gameState.stage === 'Deal' || loading}
+              >
+                {loading ? '...' : 'Call (Play Full Hand)'}
+              </button>
+              <button 
+                className="btn btn-success btn-lg" 
+                onClick={() => handlePlayerAction('Raise')} 
+                disabled={gameState.stage !== 'PreFlop' || gameState.stage === 'Deal' || loading}
+              >
+                {loading ? '...' : 'Raise (Play Full Hand)'}
+              </button>
+            </div>
+
+            <div className="text-center text-white/70">
+              <div>Stage: <span className="font-semibold">{stageLabel(gameState.stage)}</span></div>
+              <div>Pot: <span className="font-semibold">${gameState.pot}</span></div>
+              <div>Cards in deck: <span className="font-semibold">{gameState.deck.length}</span></div>
+              {gameState.fold_cards && gameState.fold_cards.length > 0 && (
+                <div>Fold cards: <span className="font-semibold">{gameState.fold_cards.length}</span></div>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      <div ref={logContainerRef} className="hidden md:block fixed right-4 top-20 bottom-4 w-80 bg-neutral-950/90 rounded-lg border border-neutral-800 p-0 overflow-auto">
+      {/* Action Log Panel */}
+      <div 
+        ref={logContainerRef} 
+        className="hidden md:block fixed right-4 top-20 bottom-4 w-80 bg-neutral-950/90 rounded-lg border border-neutral-800 p-0 overflow-auto"
+      >
         <div className="sticky top-0 z-10 bg-neutral-950/80 border-b border-neutral-800 px-4 py-3">
-          <h3 className="text-white font-semibold">Action Log</h3>
+          <h3 className="text-white font-semibold">Action Log & Tips</h3>
         </div>
         <ul className="px-4 py-3 space-y-2 text-white text-base">
-          {log.map((entry, idx) => (
-            <li key={`log-${idx}`} className="flex items-center gap-2">
+          {gameState.logs.map((entry, idx) => (
+            <li key={`log-${idx}`} className="flex items-start gap-2">
               <span className={`px-2 py-0.5 rounded-md border text-xs sm:text-sm whitespace-nowrap ${stageBadgeClass(entry.stage)}`}>
                 [{stageLabel(entry.stage)}]
               </span>
-              <div className="flex-1 leading-snug">: {entry.message}
+              <div className="flex-1 leading-snug">
+                <span className="mr-1">{logKindIcon(entry.kind)}</span>
+                {entry.message}
                 <span className="ml-2 text-neutral-300 text-xs sm:text-sm">{entry.time}</span>
               </div>
             </li>
           ))}
         </ul>
         <div className="sticky bottom-0 z-10 bg-neutral-950/80 border-t border-neutral-800 px-4 py-3">
-          <button className="btn btn-neutral w-full" onClick={() => setLog([])}>Clear Log</button>
+          <button 
+            className="btn btn-neutral w-full" 
+            onClick={() => setGameState(prev => prev ? { ...prev, logs: [] } : null)}
+          >
+            Clear Log
+          </button>
         </div>
       </div>
     </div>
@@ -175,6 +362,3 @@ const SoloTraining: React.FC = () => {
 };
 
 export default SoloTraining;
-
-
-

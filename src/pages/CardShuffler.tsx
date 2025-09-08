@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import CardDeck from '../components/CardDeck';
 import type { DeckCard } from '../types/cards';
 import Navbar from '../components/Navbar';
+import { fetchShuffledDeck } from '../lib/deck';
 import { shuffleDeck } from '../lib/shuffle';
 
 const CardShuffler: React.FC = () => {
@@ -23,16 +24,41 @@ const CardShuffler: React.FC = () => {
   const [deck, setDeck] = useState<DeckCard[]>(initialDeck);
   const [isShuffling, setIsShuffling] = useState<boolean>(false);
 
-  function handleShuffle() {
+  // Log initial state
+  React.useEffect(() => {
+    console.log('🎮 [CARDSHUFFLER] Component mounted');
+    console.log('📊 [CARDSHUFFLER] Initial deck loaded with', initialDeck.length, 'cards');
+    console.log('🔗 [CARDSHUFFLER] Ready to connect to secure backend for shuffling');
+  }, [initialDeck.length]);
+
+  async function handleShuffle() {
     if (isShuffling) return;
+    
+    console.log('🎲 [CARDSHUFFLER] Starting shuffle process...');
     setIsShuffling(true);
     const flipDurationMs = 600;
-    setTimeout(() => {
-      setDeck(prev => shuffleDeck(prev));
+    
+    try {
+      console.log('🔗 [CARDSHUFFLER] Attempting to connect to secure backend...');
+      const newDeck = await fetchShuffledDeck();
+      
+      console.log('✅ [CARDSHUFFLER] Successfully received secure deck from backend');
       setTimeout(() => {
-        setIsShuffling(false);
-      }, 50);
-    }, flipDurationMs);
+        setDeck(newDeck);
+        console.log('🎯 [CARDSHUFFLER] Deck updated with cryptographically secure shuffle');
+        setTimeout(() => setIsShuffling(false), 50);
+      }, flipDurationMs);
+    } catch (err) {
+      console.warn('⚠️ [CARDSHUFFLER] Backend unavailable, using local fallback shuffle');
+      console.error('[CARDSHUFFLER] Error details:', err);
+      
+      // fallback local shuffle to keep UX responsive
+      setTimeout(() => {
+        setDeck(prev => shuffleDeck(prev));
+        console.log('🔄 [CARDSHUFFLER] Applied local shuffle as fallback');
+        setTimeout(() => setIsShuffling(false), 50);
+      }, flipDurationMs);
+    }
   }
 
   return (

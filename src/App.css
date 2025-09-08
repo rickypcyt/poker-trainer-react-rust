@@ -37,3 +37,62 @@
 .read-the-docs {
   color: #888;
 }
+
+/* Card highlighting styles */
+.card-highlighted {
+  position: relative;
+  animation: card-glow 2s ease-in-out infinite alternate;
+  transform: scale(1.05);
+  z-index: 10;
+}
+
+.card-highlighted::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  right: -4px;
+  bottom: -4px;
+  background: linear-gradient(45deg, #ffd700, #ffed4e, #ffd700, #ffed4e);
+  border-radius: 12px;
+  z-index: -1;
+  animation: border-glow 2s ease-in-out infinite alternate;
+}
+
+.card-highlighted::after {
+  content: '✨';
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 16px;
+  animation: sparkle 1.5s ease-in-out infinite;
+}
+
+@keyframes card-glow {
+  0% {
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.8), 0 0 30px rgba(255, 215, 0, 0.4);
+  }
+}
+
+@keyframes border-glow {
+  0% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes sparkle {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2) rotate(180deg);
+    opacity: 0.8;
+  }
+}

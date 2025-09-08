@@ -11,5 +11,6 @@ export interface PokerCardProps {
   rank: Rank;
   isShuffling?: boolean;
   animationDelayMs?: number;
+  isHighlighted?: boolean;
 }
 

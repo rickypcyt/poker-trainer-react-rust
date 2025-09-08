@@ -3,10 +3,12 @@ import { SUIT_COLOR_CLASS, SUIT_SYMBOL } from '../constants/cards';
 import type { PokerCardProps } from '../types/cards';
 import React from 'react';
 
-export const PokerCard: React.FC<PokerCardProps> = ({ suit, rank, isShuffling = false, animationDelayMs = 0 }) => {
+export const PokerCard: React.FC<PokerCardProps> = ({ suit, rank, isShuffling = false, animationDelayMs = 0, isHighlighted = false }) => {
   const flippedClass = isShuffling ? 'is-flipped' : '';
+  const highlightClass = isHighlighted ? 'card-highlighted' : '';
+  
   return (
-    <div className={`card card-3d`}>
+    <div className={`card card-3d ${highlightClass}`}>
       <div className={`card-inner ${flippedClass}`} style={{ transitionDuration: '600ms' }}>
         <div className={`card-face card-front ${SUIT_COLOR_CLASS[suit]}`}>
           <div className="card-rank">{rank}</div>
