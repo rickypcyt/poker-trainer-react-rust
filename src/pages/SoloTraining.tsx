@@ -140,6 +140,7 @@ const SoloTraining: React.FC = () => {
   };
 
   const isShuffling = false;
+  const isPreflop = gameState?.stage === 'PreFlop';
 
   if (loading && !gameState) {
     return (
@@ -214,9 +215,9 @@ const SoloTraining: React.FC = () => {
           <div className="flex gap-6 items-start">
 
             {/* Center - Main Game Content */}
-            <div className="flex-1 w-full flex flex-col items-stretch justify-start gap-6 md:min-h-[20rem] md:h-[calc(100dvh-8rem)] md:overflow-hidden">
+            <div className="flex-1 min-w-0 flex flex-col items-stretch justify-start gap-6 md:min-h-[20rem] md:h-[calc(100dvh-8rem)]">
               {/* Main Game Card */}
-              <div className="bg-white/15 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/30 w-full ml-2 md:ml-3 flex flex-col h-full">
+              <div className="bg-white/15 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/30 w-full mx-2 md:mx-3 flex flex-col h-full">
                 {/* Header - Winner */}
                 {shouldShowWinner(gameState.stage) && gameState.hand_evaluation && (
                   <div className="sticky top-0 z-10 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border-b border-yellow-400/50 px-6 py-3">
@@ -227,7 +228,7 @@ const SoloTraining: React.FC = () => {
                 )}
 
                 {/* Scrollable Content */}
-                <div className="flex-1 overflow-y-auto no-scrollbar p-6 sm:p-8">
+                <div className="flex-1 overflow-y-auto no-scrollbar p-6 pr-7 sm:p-8 sm:pr-9">
 
                 {/* Board - Flop + Turn + River */}
                 {shouldShowBoard(gameState.stage) && (
@@ -344,9 +345,9 @@ const SoloTraining: React.FC = () => {
               
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-center gap-4 mb-6">
+              <div className={`flex items-center justify-center gap-4 mb-6 ${isPreflop ? 'min-h-[30vh] flex-col sm:flex-row' : ''}`}>
                 <button 
-                  className="group flex items-center space-x-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 border-2 border-red-500 hover:border-red-400 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 shadow-lg hover:shadow-xl" 
+                  className="group w-full sm:w-auto flex items-center space-x-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 border-2 border-red-500 hover:border-red-400 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 shadow-lg hover:shadow-xl" 
                   onClick={() => handlePlayerAction('Fold')} 
                   disabled={gameState.stage !== 'PreFlop' || loading}
                 >
@@ -356,29 +357,19 @@ const SoloTraining: React.FC = () => {
                   <span>{loading ? '...' : 'Fold'}</span>
                 </button>
                 <button 
-                  className="group flex items-center space-x-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 border-2 border-blue-500 hover:border-blue-400 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 shadow-lg hover:shadow-xl" 
+                  className="group w-full sm:w-auto flex items-center space-x-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 border-2 border-blue-500 hover:border-blue-400 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 shadow-lg hover:shadow-xl" 
                   onClick={() => handlePlayerAction('Call')} 
                   disabled={gameState.stage !== 'PreFlop' || loading}
                 >
                   <div className="w-6 h-6 bg-blue-500 rounded-lg flex items-center justify-center group-hover:bg-blue-400 transition-colors duration-300">
                     <span className="text-sm font-bold">✓</span>
                   </div>
-                  <span>{loading ? '...' : 'Check (Play Full Hand)'}</span>
-                </button>
-                <button 
-                  className="group flex items-center space-x-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 border-2 border-green-500 hover:border-green-400 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 shadow-lg hover:shadow-xl" 
-                  onClick={() => handlePlayerAction('Raise')} 
-                  disabled={gameState.stage !== 'PreFlop' || loading}
-                >
-                  <div className="w-6 h-6 bg-green-500 rounded-lg flex items-center justify-center group-hover:bg-green-400 transition-colors duration-300">
-                    <span className="text-sm font-bold">↑</span>
-                  </div>
-                  <span>{loading ? '...' : 'Raise'}</span>
+                  <span>{loading ? '...' : 'Check'}</span>
                 </button>
               </div>
 
               {/* Game Info */}
-              <div className="bg-white/10 rounded-xl p-4 text-center">
+              <div className={`bg-white/10 rounded-xl p-4 text-center ${isPreflop ? 'mt-12 sm:mt-16' : ''}`}>
                 <div className="grid grid-cols-3 gap-4 text-white/80">
                   <div className="flex flex-col">
                     <span className="text-sm text-white/60">Stage</span>
