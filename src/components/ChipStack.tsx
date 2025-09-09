@@ -10,7 +10,7 @@ interface ChipStackProps {
   showLabels?: boolean;
   labelLocale?: 'en' | 'es';
   lowercaseLabels?: boolean;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   countFormat?: 'suffixTimes' | 'prefixX';
   columns?: 1 | 2;
 }
@@ -29,6 +29,12 @@ const ChipStack: React.FC<ChipStackProps> = ({
   const denoms = [...CHIP_DENOMS].sort((a, b) => Number(b) - Number(a));
   const labels = labelLocale === 'es' ? CHIP_LABELS_ES : CHIP_LABELS;
   const sizeClasses = {
+    xs: {
+      containerGap: 'gap-0.5',
+      pill: 'px-1.5 py-0.5',
+      dot: 'w-2.5 h-2.5',
+      text: 'text-[10px]'
+    },
     sm: {
       containerGap: 'gap-1',
       pill: 'px-2 py-0.5',

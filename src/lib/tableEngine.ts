@@ -527,7 +527,9 @@ function processNextAction(state: TableState): TableState {
     
     // If we've gone all the way around, check if betting round is complete
     if (nextPlayerIndex === state.currentPlayerIndex) {
-      return advanceToNextStreet(state);
+      // Advance to next street and immediately continue action selection
+      const advanced = advanceToNextStreet(state);
+      return processNextAction(advanced);
     }
   }
   

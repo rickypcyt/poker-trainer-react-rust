@@ -18,6 +18,7 @@ interface PlayerSeatProps {
   isThinking?: boolean;
   actionText?: string;
   chipAnchorRef?: (el: HTMLDivElement | null) => void;
+  compactLevel?: 'normal' | 'compact' | 'ultra';
 }
 
 const PlayerSeat: React.FC<PlayerSeatProps> = ({ 
@@ -33,7 +34,8 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
   gameStage = 'PreFlop',
   isThinking = false,
   actionText,
-  chipAnchorRef
+  chipAnchorRef,
+  compactLevel = 'normal'
 }) => {
   const tag = isDealer ? 'D' : isSmallBlind ? 'SB' : isBigBlind ? 'BB' : '';
   const tagClass = isDealer
@@ -63,32 +65,47 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
   const avatar = isHero ? '🧑‍💻' : '🤖';
 
   const foldedClass = player.hasFolded ? 'opacity-50 grayscale' : '';
-  const activeClass = isActive ? 'ring-4 ring-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.35)]' : '';
+  const activeClass = isActive ? 'ring-2 ring-yellow-400 shadow-[0_0_16px_rgba(250,204,21,0.35)]' : '';
+
+  // Density-driven tweaks for bots
+  const botDensity = isHero ? 'normal' : compactLevel;
+  const botName = !isHero ? (botDensity === 'ultra' ? (name.length > 6 ? name.slice(0, 6) + '…' : name) : (botDensity === 'compact' ? (name.length > 10 ? name.slice(0, 10) + '…' : name) : name)) : name;
+
+  // Abbreviate chip amounts for compactness (e.g., 5200 -> 5.2K)
+  const formatChips = (v: number) => {
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v % 1_000_000 ? 1 : 0)}M`;
+    if (v >= 1_000) return `${(v / 1_000).toFixed(v % 1_000 ? 1 : 0)}K`;
+    return `${v}`;
+  };
 
   return (
-    <div data-position={position} className={`relative flex items-center gap-2 bg-black/20 rounded-lg p-1 ${activeClass} ${foldedClass}`}>
+    <div data-position={position} className={`relative flex items-center ${isHero ? 'gap-2 p-1' : (botDensity === 'ultra' ? 'gap-0.5 p-0.5' : botDensity === 'compact' ? 'gap-1 p-0.5' : 'gap-1 p-0.5')} bg-black/20 rounded-lg ${activeClass} ${foldedClass}`}>
       {/* Action bubble */}
       {actionText && (
-        <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-base font-semibold text-white bg-neutral-900/90 border border-white/20 rounded-full px-3 py-1 shadow-lg whitespace-nowrap">
+        <div className={`absolute ${isHero ? '-top-6' : '-top-5'} left-1/2 -translate-x-1/2 ${isHero ? 'text-base px-3 py-1' : 'text-[11px] px-2 py-0.5'} font-semibold text-white bg-neutral-900/90 border border-white/20 rounded-full shadow-lg whitespace-nowrap`}>
           {actionText}
         </div>
       )}
       {/* Left: Chip column */}
       <div className="flex shrink-0" ref={chipAnchorRef}>
-        <ChipStack stack={player.chipStack} />
+        <ChipStack stack={player.chipStack} size={isHero ? 'sm' : 'xs'} columns={(!isHero && botDensity === 'ultra') ? 2 : 1} />
       </div>
       {/* Right: Header + Cards */}
       <div className="group relative flex flex-col items-center">
-        <div className={`flex items-center justify-center gap-2`}>
-          <div className="text-2xl leading-none">{avatar}</div>
-          <span className="text-white/90 font-bold text-base">{name}</span>
-          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold text-white border ${tagClass}`}>
-            {tag || ' '}
-          </span>
-          <span className="text-white/80 font-semibold text-base">${player.chips.toLocaleString()}</span>
+        <div className={`flex items-center justify-center ${isHero ? 'gap-2' : (botDensity === 'ultra' ? 'gap-0.5' : 'gap-1')}`}>
+          {!isHero && botDensity === 'ultra' ? null : (
+            <div className={`${isHero ? 'text-2xl' : (botDensity === 'ultra' ? 'text-lg' : 'text-xl')} leading-none`}>{avatar}</div>
+          )}
+          <span className={`text-white/90 font-bold ${isHero ? 'text-base' : (botDensity === 'ultra' ? 'text-[12px]' : 'text-[13px]')} max-w-[88px] truncate`} title={!isHero ? name : undefined}>{botName}</span>
+          {tag && (
+            <span className={`px-1 py-0.5 rounded text-[9px] font-bold text-white border ${tagClass}`}>
+              {tag}
+            </span>
+          )}
+          <span className={`text-white/80 font-semibold ${isHero ? 'text-base' : (botDensity === 'ultra' ? 'text-[11px]' : 'text-[12px]')} font-mono`}>${isHero ? player.chips.toLocaleString() : formatChips(player.chips)}</span>
         </div>
         {isThinking && !player.hasFolded && (
-          <div className="mt-1 flex items-center justify-center gap-1 text-[11px] text-white/80">
+          <div className="mt-0.5 flex items-center justify-center gap-1 text-[10px] text-white/80">
             <span className="inline-block w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce [animation-delay:0ms]"></span>
             <span className="inline-block w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce [animation-delay:120ms]"></span>
             <span className="inline-block w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce [animation-delay:240ms]"></span>
@@ -96,18 +113,20 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
         )}
         {/* Chip stack hover removed as requested */}
         {/* Cards - beneath header; show 1 card for dealer draw, 2 for regular play */}
-        <div className={`flex ${isHero ? 'gap-0.5' : 'gap-0'} mt-1`}>
+        <div className={`flex ${isHero ? 'gap-0.5' : 'gap-0'} mt-0.5`}>
           {cards.map((c, i) => {
-            const overlap = isHero ? -8 : -12; // bots overlap a bit more to look tighter
+            const overlap = isHero ? -8 : (botDensity === 'ultra' ? -20 : botDensity === 'compact' ? -17 : -14); // tighter with density
+            const hoverCls = isHero ? 'hover:z-10 hover:transform hover:translate-y-[-5px]' : '';
+            const angle = isHero ? 0 : (i === 0 ? -8 : 8); // fan cards slightly for bots
+            const pointerCls = isHero ? '' : 'pointer-events-none';
             return (
-            <div key={i} className="relative" style={{ transform: `translateX(${i * overlap}px)` }}>
+            <div key={i} className={`relative ${pointerCls}`} style={{ transform: `translateX(${i * overlap}px) rotate(${angle}deg)` }}>
               <PokerCard 
                 suit={c.suit} 
                 rank={c.rank} 
                 isFaceDown={faceDown} 
-                scale={isHero ? 0.75 : (shouldShowCards ? 0.65 : 0.5)}
-                className={`${isHero || shouldShowCards ? '[--card-rank-size:1.05rem] [--card-suit-size:1.05rem]' : '[--card-rank-size:0.9rem] [--card-suit-size:0.9rem]'} 
-                  hover:z-10 hover:transform hover:translate-y-[-5px] transition-all duration-200`}
+                scale={isHero ? 0.72 : (shouldShowCards ? (botDensity === 'ultra' ? 0.5 : botDensity === 'compact' ? 0.54 : 0.58) : (botDensity === 'ultra' ? 0.44 : 0.48))}
+                className={`${isHero || shouldShowCards ? '[--card-rank-size:0.95rem] [--card-suit-size:0.95rem]' : '[--card-rank-size:0.8rem] [--card-suit-size:0.8rem]'} ${hoverCls} transition-all duration-200`}
               />
             </div>
           );})}

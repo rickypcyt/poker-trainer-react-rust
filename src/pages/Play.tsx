@@ -465,27 +465,44 @@ const Play: React.FC = () => {
 
   const { players, dealerIndex, smallBlindIndex, bigBlindIndex } = table;
   const bots = players.filter((p: Player) => !p.isHero);
-  const botPositions = (() => {
-    // Place bots around table corners/edges to avoid vertical stacking
-    // Hero sits bottom center; corners: top-left, top-right, bottom-left, bottom-right
-    switch (bots.length) {
-      case 1:
-        // Single bot at top-right corner
-        return ['right-6 top-24'];
-      case 2:
-        // Two bots: top-left and top-right
-        return ['left-6 top-24', 'right-6 top-24'];
-      case 3:
-        // Three bots: top-left, top-right, bottom-left
-        return ['left-6 top-24', 'right-6 top-24', 'left-6 bottom-40'];
-      case 4:
-        // Four bots: all corners
-        return ['left-6 top-24', 'right-6 top-24', 'left-6 bottom-40', 'right-6 bottom-40'];
-      default:
-        // Fallback for 5+: distribute adding mid-top center then mid-right, etc.
-        return ['left-6 top-24', 'right-6 top-24', 'left-6 bottom-40', 'right-6 bottom-40', 'left-1/2 top-20 -translate-x-1/2'];
+  // Compute bot positions on a ring (percentage-based) avoiding:
+  // - bottom-center overlap with the hero
+  // - top-center overlap with the dealer
+  const botRing = React.useMemo(() => {
+    const n = bots.length;
+    if (n === 0) return [] as Array<{ left: number; top: number; position: 'left' | 'right' | 'top' | 'bottom' }>;
+    const results: Array<{ left: number; top: number; position: 'left' | 'right' | 'top' | 'bottom' }> = [];
+    // Define two gaps: top (dealer) and bottom (hero)
+    const gapTopDeg = 40;    // centered at 90° (top)
+    const gapBottomDeg = 60; // centered at 270° (bottom)
+    const startA = 90 + gapTopDeg / 2;          // from just right of top gap
+    const endA = 270 - gapBottomDeg / 2;        // to just left of bottom gap
+    const startB = 270 + gapBottomDeg / 2;      // from just right of bottom gap
+    const endB = 450 - gapTopDeg / 2;           // to just left of top gap (wraps past 360 to 450)
+    const lenA = endA - startA;                 // left arc length
+    const lenB = endB - startB;                 // right arc length (same as lenA)
+    const totalLen = lenA + lenB;
+    const radius = 38; // percent of container (fits within padding)
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n; // midpoints for even spacing
+      let thetaDeg = startA + t * totalLen;
+      if (thetaDeg > endA) {
+        // jump into second arc
+        const excess = thetaDeg - endA;
+        thetaDeg = startB + excess;
+      }
+      const theta = (thetaDeg * Math.PI) / 180;
+      const cx = 50 + radius * Math.cos(theta);
+      const cy = 50 + radius * Math.sin(theta);
+      // Infer seat position for subtle UI tweaks
+      let pos: 'left' | 'right' | 'top' | 'bottom' = 'left';
+      if (cy <= 35) pos = 'top';
+      else if (cy >= 65) pos = 'bottom';
+      else pos = cx < 50 ? 'left' : 'right';
+      results.push({ left: cx, top: cy, position: pos });
     }
-  })();
+    return results;
+  }, [bots.length]);
 
   // Note: animateDeal function was removed as it was not being used
   // and the card dealing animation is handled by the table engine
@@ -519,7 +536,7 @@ const Play: React.FC = () => {
           <div className="relative bg-slate-900 text-white rounded-xl shadow-2xl border border-white/10 w-[92vw] max-w-[520px] p-6">
             <div className="text-center mb-4">
               <div className={`text-2xl font-extrabold ${endModalResult === 'won' ? 'text-green-400' : 'text-red-400'}`}>
-                {endModalResult === 'won' ? 'You Won!' : 'You Lost'}
+                {endModalResult === 'won' ? '¡Ganaste!' : 'Perdiste'}
               </div>
               <div className="text-base text-white/80 mt-1">¿Quieres ver el log de la mano o empezar un nuevo juego?</div>
             </div>
@@ -542,7 +559,7 @@ const Play: React.FC = () => {
                 className="w-full bg-red-700 hover:bg-red-600 text-white font-semibold py-2 rounded-md shadow"
                 onClick={() => { setIsEndModalOpen(false); handleEndGame(); }}
               >
-                Nuevo game
+                Nuevo juego
               </button>
             </div>
           </div>
@@ -552,14 +569,14 @@ const Play: React.FC = () => {
                   id="bots"
                   type="range"
                   min={1}
-                  max={5}
+                  max={10}
                   step={1}
                   value={pendingNumBots}
                   onChange={(e) => setPendingNumBots(parseInt(e.target.value))}
                   className="w-full accent-yellow-400"
                 />
                 <div className="flex justify-between text-white/50 text-base mt-1">
-                  {[1,2,3,4,5].map(n => (<span key={n}>{n}</span>))}
+                  {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (<span key={n}>{n}</span>))}
                 </div>
               </div>
 
@@ -811,17 +828,17 @@ const Play: React.FC = () => {
           </div>
         ))}
 
-        {/* Other players clockwise around table edges */}
+        {/* Other players placed around a ring */}
         {bots.map((p: Player, i: number) => {
           const idx = players.indexOf(p);
-          const cls = botPositions[i] || 'right-2 bottom-24';
-          // Determine position based on class name
-          let position: 'left' | 'right' | 'top' = 'left';
-          if (cls.includes('right-')) position = 'right';
-          else if (cls.includes('top-')) position = 'top';
-          
+          const pos = botRing[i] || { left: 88, top: 25, position: 'right' as const };
+          const compactLevel = bots.length > 6 ? 'ultra' : (bots.length > 3 ? 'compact' : 'normal');
           return (
-            <div key={p.id} className={`absolute ${cls}`}>
+            <div
+              key={p.id}
+              className="absolute"
+              style={{ left: `${pos.left}%`, top: `${pos.top}%`, transform: 'translate(-50%, -50%)' }}
+            >
               <PlayerSeat
                 player={p}
                 isDealer={idx === dealerIndex}
@@ -831,11 +848,12 @@ const Play: React.FC = () => {
                 drawCard={table.dealerDrawCards[p.id]}
                 showDrawCard={table.dealerDrawInProgress}
                 isActive={idx === table.currentPlayerIndex}
-                position={position}
+                position={pos.position}
                 gameStage={table.stage}
                 isThinking={table.botPendingIndex === idx}
                 actionText={seatActions[p.id]}
                 chipAnchorRef={(el) => { chipAnchorsRef.current[p.id] = el; }}
+                compactLevel={compactLevel as 'normal' | 'compact' | 'ultra'}
               />
             </div>
           );
