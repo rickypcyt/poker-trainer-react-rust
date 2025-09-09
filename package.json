@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/dev-with-backend.js",
+    "dev": "bun scripts/dev.ts",
     "dev:frontend": "vite",
     "dev:backend": "cd backend && cargo run",
     "build": "tsc -b && vite build",

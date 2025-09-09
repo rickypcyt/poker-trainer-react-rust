@@ -513,7 +513,7 @@ export function heroRaiseTo(state: TableState, raiseTo: number): TableState {
 }
 
 // Process the next player's action (bot or human)
-function processNextAction(state: TableState): TableState {
+export function processNextAction(state: TableState): TableState {
   // If game is already in showdown or hand is over, don't process more actions
   if (state.stage === 'Showdown' || state.dealerDrawInProgress) {
     return state;
@@ -1131,3 +1131,91 @@ export function deductFromChipStack(stack: ChipStack, amount: number): void {
 
 
 
+// Apply a decision coming from an external bot service
+export function applyExternalBotDecision(
+  state: TableState,
+  botIndex: number,
+  decision: { action: 'Fold' | 'Call' | 'Raise' | 'AllIn'; raiseTo?: number }
+): TableState {
+  const bot = state.players[botIndex];
+  const highestBet = maxBet(state);
+  const toCall = Math.max(0, highestBet - bot.bet);
+
+  if (decision.action === 'Fold') {
+    const players = state.players.map((p, i) => i === botIndex ? { ...p, hasFolded: true } : p);
+    const next = {
+      ...state,
+      players,
+      currentPlayerIndex: (botIndex + 1) % state.players.length,
+      actionLog: [...state.actionLog, { message: `${bot.name} folded`, time: new Date().toLocaleTimeString() }]
+    } as TableState;
+    const active = next.players.filter(p => !p.hasFolded);
+    if (active.length <= 1) {
+      const winnerIndex = next.players.findIndex(p => !p.hasFolded);
+      const awarded = awardPotToWinner(next, winnerIndex, 'all others folded');
+      return { ...awarded, stage: 'Showdown' };
+    }
+    return next;
+  }
+
+  if (decision.action === 'Call') {
+    const pay = Math.min(toCall, bot.chips);
+    const newStack = { ...bot.chipStack };
+    const used = takeFromChipStackGreedy(newStack, pay);
+    const players = state.players.map((p, i) => i === botIndex ? { ...p, chips: p.chips - pay, bet: p.bet + pay, chipStack: newStack } : p);
+    return {
+      ...state,
+      players,
+      pot: state.pot + pay,
+      potStack: addToChipStack({ ...state.potStack }, used),
+      currentPlayerIndex: (botIndex + 1) % state.players.length,
+      actionLog: [...state.actionLog, { message: `${bot.name} called ${pay}`, time: new Date().toLocaleTimeString() }]
+    } as TableState;
+  }
+
+  if (decision.action === 'AllIn') {
+    const pay = bot.chips; // shove remaining
+    const newStack = { ...bot.chipStack };
+    const used = takeFromChipStackGreedy(newStack, pay);
+    const players = state.players.map((p, i) => i === botIndex ? { ...p, chips: p.chips - pay, bet: p.bet + pay, chipStack: newStack } : p);
+    return {
+      ...state,
+      players,
+      pot: state.pot + pay,
+      potStack: addToChipStack({ ...state.potStack }, used),
+      currentPlayerIndex: (botIndex + 1) % state.players.length,
+      actionLog: [...state.actionLog, { message: `${bot.name} went all-in (${pay})`, time: new Date().toLocaleTimeString(), isImportant: true }]
+    } as TableState;
+  }
+
+  // Raise
+  const target = Math.max(decision.raiseTo ?? (highestBet + state.bigBlind), highestBet + state.bigBlind);
+  const delta = Math.max(0, target - bot.bet);
+  const pay = Math.min(delta, bot.chips);
+  if (pay <= 0) {
+    // Fallback to call
+    const payCall = Math.min(toCall, bot.chips);
+    const newStackCall = { ...bot.chipStack };
+    const usedCall = takeFromChipStackGreedy(newStackCall, payCall);
+    const playersCall = state.players.map((p, i) => i === botIndex ? { ...p, chips: p.chips - payCall, bet: p.bet + payCall, chipStack: newStackCall } : p);
+    return {
+      ...state,
+      players: playersCall,
+      pot: state.pot + payCall,
+      potStack: addToChipStack({ ...state.potStack }, usedCall),
+      currentPlayerIndex: (botIndex + 1) % state.players.length,
+      actionLog: [...state.actionLog, { message: `${bot.name} called ${payCall}`, time: new Date().toLocaleTimeString() }]
+    } as TableState;
+  }
+  const newStack = { ...bot.chipStack };
+  const used = takeFromChipStackGreedy(newStack, pay);
+  const players = state.players.map((p, i) => i === botIndex ? { ...p, chips: p.chips - pay, bet: p.bet + pay, chipStack: newStack } : p);
+  return {
+    ...state,
+    players,
+    pot: state.pot + pay,
+    potStack: addToChipStack({ ...state.potStack }, used),
+    currentPlayerIndex: (botIndex + 1) % state.players.length,
+    actionLog: [...state.actionLog, { message: `${bot.name} raised to ${bot.bet + pay}`, time: new Date().toLocaleTimeString() }]
+  } as TableState;
+}

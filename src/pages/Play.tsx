@@ -9,7 +9,10 @@ import {
   heroCall,
   heroRaiseTo,
   performBotActionNow,
+  applyExternalBotDecision,
+  processNextAction,
 } from '../lib/tableEngine';
+import { requestBotDecision } from '../lib/botService';
 
 import ChipStack from '../components/ChipStack';
 import Dealer from '../components/Dealer';
@@ -321,7 +324,7 @@ const Play: React.FC = () => {
     return () => clearTimeout(tid);
   }, [table.actionLog, table.players]);
 
-  // Bot thinking: when a bot is pending, wait locally then perform the action via engine
+  // Bot thinking: when a bot is pending, wait locally then perform the action (external service if configured)
   React.useEffect(() => {
     const hardCapMs = Math.max(200, (timeLimitSeconds ?? GAME_CONFIG.defaultTimeLimitSeconds) * 1000);
     if (table.botPendingIndex == null) {
@@ -337,18 +340,69 @@ const Play: React.FC = () => {
     botTotalDelayRef.current = chosenDelayMs;
     setBotTimeLeftMs(chosenDelayMs);
 
+    // If external bot API configured, start fetching a decision immediately
+    const apiBase = (() => {
+      try {
+        if (typeof window !== 'undefined') {
+          const s = localStorage.getItem('poker_trainer_bot_api');
+          if (s && /^https?:\/\//.test(s)) return s;
+        }
+      } catch {}
+      return null;
+    })();
+    const abort = new AbortController();
+    let externalDecision: null | { action: 'Fold' | 'Call' | 'Raise' | 'AllIn'; raiseTo?: number; rationale?: string } = null;
+    if (apiBase) {
+      try {
+        const idx = table.botPendingIndex as number;
+        const highestBet = Math.max(0, ...table.players.map((p: Player) => p.bet));
+        const toCall = Math.max(0, highestBet - table.players[idx].bet);
+        const payload = {
+          stage: table.stage,
+          bigBlind: table.bigBlind,
+          smallBlind: table.smallBlind,
+          pot: table.pot,
+          highestBet,
+          toCall,
+          bot: {
+            chips: table.players[idx].chips,
+            bet: table.players[idx].bet,
+            holeCards: table.players[idx].holeCards,
+            positionIndex: idx,
+            seatIndex: table.players[idx].seatIndex,
+            personality: table.players[idx].ai?.personality ?? 'Balanced',
+            difficulty: table.players[idx].ai?.difficulty ?? table.difficulty ?? 'Medium',
+          },
+          players: table.players.map((p: Player) => ({ chips: p.chips, bet: p.bet, hasFolded: p.hasFolded, isHero: !!p.isHero })),
+          board: table.board,
+        };
+        // Fire and forget; store result for timeout application
+        requestBotDecision(apiBase, payload, abort.signal)
+          .then((d) => { externalDecision = d; })
+          .catch(() => { /* ignore, fallback to local bot */ });
+      } catch {}
+    }
+
     const interval = setInterval(() => {
       const left = Math.max(0, deadline - Date.now());
       setBotTimeLeftMs(left);
     }, 100);
     const to = setTimeout(() => {
       setTable((prev: TableState) => {
+        // Apply external decision if available
+        if (prev.botPendingIndex != null && externalDecision) {
+          const applied = applyExternalBotDecision(prev, prev.botPendingIndex, externalDecision);
+          const advanced = processNextAction({ ...applied, botPendingIndex: null } as TableState);
+          if (advanced.stage === 'Showdown') setReveal(true);
+          return advanced;
+        }
+        // Fallback: use local engine decision
         const next = performBotActionNow(prev);
         if (next.stage === 'Showdown') setReveal(true);
         return next;
       });
     }, chosenDelayMs);
-    return () => { clearInterval(interval); clearTimeout(to); };
+    return () => { clearInterval(interval); clearTimeout(to); abort.abort(); };
   }, [table.botPendingIndex, timeLimitSeconds]);
 
   // Countdown updater for bot thinking overlay
