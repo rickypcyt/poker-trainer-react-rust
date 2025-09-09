@@ -59,11 +59,31 @@ export interface GameState {
   pot: number;
   player_bet: number;
   dealer_bet: number;
+  current_player: 'player' | 'dealer';
+  dealer_hand: Card[];
+  community_cards: Card[];
+  current_bet: number;
+  big_blind: number;
   hand_evaluation?: HandEvaluation;
 }
 
 export interface PlayerActionRequest {
   action: PlayerAction;
+}
+
+export interface BotDecisionRequest {
+  hole_cards: Card[];
+  board: Card[];
+  stage: GameStage;
+  pot: number;
+  to_call: number;
+  big_blind: number;
+  min_raise: number;
+}
+
+export interface BotDecisionResponse {
+  action: PlayerAction;
+  raise_to?: number;
 }
 
 class PokerService {
@@ -116,16 +136,21 @@ class PokerService {
     }
   }
 
-  async playerAction(gameId: string, action: PlayerAction): Promise<GameState> {
-    console.log('🎯 [FRONTEND] Sending player action:', action, 'for game:', gameId);
+  async playerAction(gameId: string, action: PlayerAction, raiseAmount?: number): Promise<GameState> {
+    console.log('🎯 [FRONTEND] Sending player action:', action, 'for game:', gameId, raiseAmount ? `(raise to: ${raiseAmount})` : '');
     
     try {
+      const requestBody: any = { action };
+      if (action === 'Raise' && raiseAmount !== undefined) {
+        requestBody.raise_amount = raiseAmount;
+      }
+      
       const response = await fetch(`${this.baseUrl}/api/game/${gameId}/action`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -162,6 +187,33 @@ class PokerService {
     } catch (error) {
       console.error('💥 [FRONTEND] Error resetting game:', error);
       throw error;
+    }
+  }
+
+  // Get bot decision
+  async getBotDecision(request: BotDecisionRequest): Promise<BotDecisionResponse> {
+    console.log('🤖 [FRONTEND] Getting bot decision for stage:', request.stage);
+    
+    try {
+      const response = await fetch(`${this.baseUrl}/api/bot/decide`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to get bot decision: ${response.status}`);
+      }
+
+      const decision = await response.json();
+      console.log('✅ [FRONTEND] Bot decision received:', decision.action);
+      return decision;
+    } catch (error) {
+      console.error('💥 [FRONTEND] Error getting bot decision:', error);
+      // Default to fold on error
+      return { action: 'Fold' };
     }
   }
 

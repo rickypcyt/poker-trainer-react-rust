@@ -3,12 +3,21 @@ import React from 'react';
 
 type NavbarProps = {
   onShuffle?: () => void;
+  onMenuToggle?: () => void;
+  onOpenLogs?: () => void;
   disabled?: boolean;
   actionLabel?: string;
   subtitle?: string;
 };
 
-export const Navbar: React.FC<NavbarProps> = ({ onShuffle, disabled, actionLabel = 'Shuffle', subtitle }) => {
+export const Navbar: React.FC<NavbarProps> = ({ 
+  onShuffle, 
+  onMenuToggle, 
+  onOpenLogs,
+  disabled, 
+  actionLabel = 'Shuffle', 
+  subtitle 
+}) => {
   return (
     <nav className="bg-white/5 backdrop-blur-xl border-b border-white/10">
       <div className="container mx-auto px-4 py-4">
@@ -36,21 +45,48 @@ export const Navbar: React.FC<NavbarProps> = ({ onShuffle, disabled, actionLabel
             )}
           </div>
 
-          {/* Action Button */}
-          {onShuffle && (
-            <button 
-              className="group flex items-center space-x-2 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 text-white px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100" 
-              onClick={onShuffle} 
-              disabled={disabled}
-            >
-              <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center group-hover:bg-white/30 transition-colors duration-300">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          {/* Action Buttons */}
+          <div className="flex items-center space-x-2">
+            {onMenuToggle && (
+              <button 
+                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors duration-300 md:hidden"
+                onClick={onMenuToggle}
+                aria-label="Toggle menu"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
                 </svg>
-              </div>
-              <span className="hidden sm:block">{actionLabel}</span>
-            </button>
-          )}
+              </button>
+            )}
+            {onOpenLogs && (
+              <button
+                className="group flex items-center space-x-2 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 text-white px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105"
+                onClick={onOpenLogs}
+                aria-label="Open logs"
+              >
+                <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center group-hover:bg-white/30 transition-colors duration-300">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-6h6v6m2 4H7a2 2 0 01-2-2V7a2 2 0 012-2h3l2-2h4l2 2h3a2 2 0 012 2v12a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <span className="hidden sm:block">Logs</span>
+              </button>
+            )}
+            {onShuffle && (
+              <button 
+                className="group flex items-center space-x-2 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 text-white px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100" 
+                onClick={onShuffle} 
+                disabled={disabled}
+              >
+                <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center group-hover:bg-white/30 transition-colors duration-300">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </div>
+                <span className="hidden sm:block">{actionLabel}</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </nav>

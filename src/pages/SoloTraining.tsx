@@ -407,14 +407,14 @@ const SoloTraining: React.FC = () => {
           {gameState.logs.map((entry, idx) => (
             <div key={`log-${idx}`} className="bg-neutral-800/60 rounded-xl p-4 border border-neutral-700/40 hover:bg-neutral-800/80 transition-colors duration-200">
               <div className="flex flex-col gap-2">
-                <div className={`px-3 py-1 rounded-lg border text-xs font-medium w-fit ${stageBadgeClass(entry.stage)}`}>
+                <div className={`px-3 py-1 rounded-lg border text-sm font-medium w-fit ${stageBadgeClass(entry.stage)}`}>
                   {stageLabel(entry.stage)}
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="text-lg flex-shrink-0">{logKindIcon(entry.kind)}</span>
                   <div className="min-w-0">
                     <p className="text-white/90 leading-relaxed">{entry.message}</p>
-                    <div className="text-neutral-400 text-xs font-medium mt-1">
+                    <div className="text-neutral-400 text-sm font-medium mt-1">
                       {entry.time}
                     </div>
                   </div>

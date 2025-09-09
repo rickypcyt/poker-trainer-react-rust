@@ -1,0 +1,580 @@
+import type { ChipStack, DealConfig, Player, TableState } from '../types/table';
+
+import type { Card } from './pokerService';
+import type { DeckCard } from '../types/cards';
+import { createStandardDeck } from './deck';
+import { shuffleDeck } from './shuffle';
+
+function generateId(prefix: string): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function mapToCardDeck(deck: DeckCard[]): Card[] {
+  // Convert DeckCard (frontend type) to Card (engine type)
+  return deck.map(c => ({ suit: c.suit as Card['suit'], rank: c.rank as Card['rank'] }));
+}
+
+export function createInitialTable(config: DealConfig): TableState {
+  const deck: Card[] = mapToCardDeck(shuffleDeck(createStandardDeck()));
+
+  const players: Player[] = [];
+  // Hero at seat 0
+  players.push({
+    id: generateId('hero'),
+    name: 'You',
+    isBot: false,
+    isHero: true,
+    chips: config.startingChips,
+    chipStack: createDefaultChipStack(config.initialChipStack),
+    bet: 0,
+    holeCards: [] as Card[],
+    hasFolded: false,
+    seatIndex: 0,
+  });
+  
+  // Bots next seats - use the same chip distribution as hero
+  const botChipStack = createDefaultChipStack(config.initialChipStack);
+  for (let i = 0; i < config.numBots; i += 1) {
+    players.push({
+      id: generateId('bot'),
+      name: `Bot ${i + 1}`,
+      isBot: true,
+      isHero: false,
+      chips: config.startingChips,
+      chipStack: { ...botChipStack }, // Clone the chip stack
+      bet: 0,
+      holeCards: [] as Card[],
+      hasFolded: false,
+      seatIndex: i + 1,
+    });
+  }
+
+  const dealerDrawCards: Record<string, Card | null> = {};
+  for (const p of players) dealerDrawCards[p.id] = null;
+  const table: TableState = {
+    stage: 'DealerDraw',
+    deck,
+    board: [],
+    burned: [],
+    communityCards: [],
+    players,
+    dealerIndex: -1,
+    smallBlindIndex: -1,
+    bigBlindIndex: -1,
+    currentPlayerIndex: 0,
+    pot: 0,
+    smallBlind: config.smallBlind,
+    bigBlind: config.bigBlind,
+    handNumber: 0,
+    currentBet: 0,
+    dealerDrawCards,
+    dealerDrawRevealed: false,
+    dealerDrawInProgress: true,
+    actionLog: [],
+    dealingState: {
+      isDealing: false,
+      currentDealIndex: 0,
+      dealOrder: [],
+      highlightHighCard: false,
+      highCardPlayerIndex: null,
+      stage: 'none'
+    }
+  };
+
+  return table;
+}
+
+export function startNewHand(state: TableState): TableState {
+  const nextDealer = (state.dealerIndex + (state.handNumber === 0 ? 0 : 1)) % state.players.length;
+  let deck: Card[] = mapToCardDeck(shuffleDeck(createStandardDeck()));
+  const players = state.players.map(p => ({ ...p, bet: 0, holeCards: [] as Card[], hasFolded: false }));
+  const smallBlindIndex = (nextDealer + 1) % players.length;
+  const bigBlindIndex = (nextDealer + 2) % players.length;
+
+  // Post blinds
+  players[smallBlindIndex].bet = Math.min(players[smallBlindIndex].chips, state.smallBlind);
+  players[smallBlindIndex].chips -= players[smallBlindIndex].bet;
+  deductFromChipStack(players[smallBlindIndex].chipStack, players[smallBlindIndex].bet);
+  players[bigBlindIndex].bet = Math.min(players[bigBlindIndex].chips, state.bigBlind);
+  players[bigBlindIndex].chips -= players[bigBlindIndex].bet;
+  deductFromChipStack(players[bigBlindIndex].chipStack, players[bigBlindIndex].bet);
+  let pot = players[smallBlindIndex].bet + players[bigBlindIndex].bet;
+
+  // Deal two cards to each player clockwise from SB (typical live deal starts left of dealer).
+  for (let r = 0; r < 2; r += 1) {
+    for (let i = 0; i < players.length; i += 1) {
+      const seat = (smallBlindIndex + i) % players.length;
+      const card = deck.pop();
+      if (!card) continue;
+      players[seat].holeCards.push(card);
+    }
+  }
+
+  // Current player is first to act preflop: seat left of big blind
+  const currentPlayerIndex = (bigBlindIndex + 1) % players.length;
+
+  return {
+    ...state,
+    stage: 'PreFlop' as 'DealerDraw' | 'PreFlop' | 'Flop' | 'Turn' | 'River' | 'Showdown',
+    deck,
+    board: [],
+    burned: [],
+    players,
+    dealerIndex: nextDealer,
+    smallBlindIndex,
+    bigBlindIndex,
+    currentPlayerIndex,
+    pot,
+    handNumber: state.handNumber + 1,
+    dealerDrawInProgress: false,
+    dealerDrawRevealed: false,
+    actionLog: [
+      ...state.actionLog,
+      { message: `${players[smallBlindIndex].name} posts small blind ${state.smallBlind}`, time: new Date().toLocaleTimeString() },
+      { message: `${players[bigBlindIndex].name} posts big blind ${state.bigBlind}`, time: new Date().toLocaleTimeString() },
+    ],
+  };
+}
+
+export function prepareNewHandWithoutDealing(state: TableState): TableState {
+  const nextDealer = (state.dealerIndex + (state.handNumber === 0 ? 0 : 1)) % state.players.length;
+  let deck: Card[] = mapToCardDeck(shuffleDeck(createStandardDeck()));
+  const players = state.players.map(p => ({ ...p, bet: 0, holeCards: [] as Card[], hasFolded: false }));
+  const smallBlindIndex = (nextDealer + 1) % players.length;
+  const bigBlindIndex = (nextDealer + 2) % players.length;
+
+  // Post blinds
+  players[smallBlindIndex].bet = Math.min(players[smallBlindIndex].chips, state.smallBlind);
+  players[smallBlindIndex].chips -= players[smallBlindIndex].bet;
+  deductFromChipStack(players[smallBlindIndex].chipStack, players[smallBlindIndex].bet);
+  players[bigBlindIndex].bet = Math.min(players[bigBlindIndex].chips, state.bigBlind);
+  players[bigBlindIndex].chips -= players[bigBlindIndex].bet;
+  deductFromChipStack(players[bigBlindIndex].chipStack, players[bigBlindIndex].bet);
+  let pot = players[smallBlindIndex].bet + players[bigBlindIndex].bet;
+
+  return {
+    ...state,
+    stage: 'DealerDraw' as 'DealerDraw' | 'PreFlop' | 'Flop' | 'Turn' | 'River' | 'Showdown',
+    deck,
+    board: [],
+    burned: [],
+    players,
+    dealerIndex: nextDealer,
+    smallBlindIndex,
+    bigBlindIndex,
+    currentPlayerIndex: -1,
+    pot,
+    handNumber: state.handNumber + 1,
+    dealerDrawInProgress: false,
+    dealerDrawRevealed: false,
+  };
+}
+
+export function proceedToFlop(state: TableState): TableState {
+  const deck = state.deck.slice();
+  const burned = state.burned.slice();
+  // Burn one, deal three
+  const burn = deck.pop();
+  if (burn) burned.push(burn);
+  const board = state.board.slice();
+  for (let i = 0; i < 3; i += 1) {
+    const c = deck.pop();
+    if (c) board.push(c);
+  }
+  return { ...state, stage: 'Flop', deck, burned, board };
+}
+
+export function proceedToTurn(state: TableState): TableState {
+  const deck = state.deck.slice();
+  const burned = state.burned.slice();
+  const board = state.board.slice();
+  const burn = deck.pop();
+  if (burn) burned.push(burn);
+  const c = deck.pop();
+  if (c) board.push(c);
+  return { ...state, stage: 'Turn', deck, burned, board };
+}
+
+export function proceedToRiver(state: TableState): TableState {
+  const deck = state.deck.slice();
+  const burned = state.burned.slice();
+  const board = state.board.slice();
+  const burn = deck.pop();
+  if (burn) burned.push(burn);
+  const c = deck.pop();
+  if (c) board.push(c);
+  return { ...state, stage: 'River', deck, burned, board };
+}
+
+export type SimpleAction = 'Fold' | 'Check' | 'Call';
+
+export function simpleAdvance(state: TableState): TableState {
+  // For first iteration: skip betting rounds, auto-advance streets until showdown
+  if (state.stage === 'PreFlop') {
+    const next = proceedToFlop(state);
+    return { ...next, actionLog: [...next.actionLog, { message: 'Dealing the flop', time: new Date().toLocaleTimeString() }] };
+  }
+  if (state.stage === 'Flop') {
+    const next = proceedToTurn(state);
+    return { ...next, actionLog: [...next.actionLog, { message: 'Dealing the turn', time: new Date().toLocaleTimeString() }] };
+  }
+  if (state.stage === 'Turn') {
+    const next = proceedToRiver(state);
+    return { ...next, actionLog: [...next.actionLog, { message: 'Dealing the river', time: new Date().toLocaleTimeString() }] };
+  }
+  if (state.stage === 'River') {
+    return { ...state, stage: 'Showdown', actionLog: [...state.actionLog, { message: 'Showdown', time: new Date().toLocaleTimeString() }] } as TableState;
+  }
+  return state;
+}
+
+// Dealer draw: each player gets one card to decide initial dealer
+export function performDealerDraw(state: TableState): TableState {
+  if (!state.dealerDrawInProgress) return state;
+  const deck = state.deck.slice();
+  const dealerDrawCards: Record<string, Card | null> = { ...state.dealerDrawCards };
+  for (const p of state.players) {
+    if (!dealerDrawCards[p.id]) {
+      dealerDrawCards[p.id] = deck.pop() ?? null;
+    }
+  }
+  return { ...state, deck, dealerDrawCards };
+}
+
+export function revealDealerDraw(state: TableState): TableState {
+  if (!state.dealerDrawInProgress) return state;
+  // Determine highest card; tie-breaker by suit order (spades > hearts > diamonds > clubs)
+  const suitOrder: Record<string, number> = { spades: 4, hearts: 3, diamonds: 2, clubs: 1 };
+  const rankOrder: Record<string, number> = {
+    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
+    '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14,
+  };
+  const entries = state.players.map(p => ({ p, c: state.dealerDrawCards[p.id]! }));
+  entries.sort((a, b) => {
+    const ra = rankOrder[a.c.rank];
+    const rb = rankOrder[b.c.rank];
+    if (rb !== ra) return rb - ra;
+    const sa = suitOrder[a.c.suit];
+    const sb = suitOrder[b.c.suit];
+    return sb - sa;
+  });
+  const winnerIdx = entries[0].p.seatIndex;
+  // Set dealer at winner, SB and BB after
+  const smallBlindIndex = (winnerIdx + 1) % state.players.length;
+  const bigBlindIndex = (winnerIdx + 2) % state.players.length;
+  return {
+    ...state,
+    dealerIndex: winnerIdx,
+    smallBlindIndex,
+    bigBlindIndex,
+    dealerDrawRevealed: true,
+    dealerDrawInProgress: false, // Changed from true to false to end dealer draw phase
+    actionLog: [
+      ...state.actionLog,
+      { message: `${state.players[winnerIdx].name} wins dealer button (high card)`, time: new Date().toLocaleTimeString() },
+    ],
+  };
+}
+
+// --- Hero action helpers (very simplified) ---
+function getHeroIndex(state: TableState): number { return state.players.findIndex(p => p.isHero); }
+function maxBet(state: TableState): number { return Math.max(0, ...state.players.map(p => p.bet)); }
+
+export function heroFold(state: TableState): TableState {
+  const heroIdx = getHeroIndex(state);
+  if (heroIdx < 0) return state;
+  const players = state.players.map((p, i) => i === heroIdx ? { ...p, hasFolded: true } : p);
+  const newState = { 
+    ...state, 
+    players, 
+    currentPlayerIndex: (heroIdx + 1) % state.players.length,
+    actionLog: [...state.actionLog, { message: `${players[heroIdx].name} folded`, time: new Date().toLocaleTimeString() }] 
+  };
+  
+  // Check if hand should end or continue with next player
+  const activePlayers = newState.players.filter(p => !p.hasFolded);
+  if (activePlayers.length <= 1) {
+    // Hand is over, only one player left
+    return { ...newState, stage: 'Showdown' };
+  }
+  
+  // Process next player's action if it's a bot
+  return processNextAction(newState);
+}
+
+export function heroCall(state: TableState): TableState {
+  const heroIdx = getHeroIndex(state);
+  if (heroIdx < 0) return state;
+  const highest = maxBet(state);
+  const hero = state.players[heroIdx];
+  const toCall = Math.max(0, highest - hero.bet);
+  
+  let newState: TableState;
+  if (toCall <= 0) {
+    newState = { 
+      ...state, 
+      currentPlayerIndex: (heroIdx + 1) % state.players.length,
+      actionLog: [...state.actionLog, { message: `${hero.name} checked`, time: new Date().toLocaleTimeString() }] 
+    };
+  } else {
+    const pay = Math.min(toCall, hero.chips);
+    const players = state.players.map((p, i) => i === heroIdx ? { ...p, chips: p.chips - pay, bet: p.bet + pay } : p);
+    const pot = state.pot + pay;
+    newState = { 
+      ...state, 
+      players, 
+      pot, 
+      currentPlayerIndex: (heroIdx + 1) % state.players.length,
+      actionLog: [...state.actionLog, { message: `${hero.name} called ${pay}`, time: new Date().toLocaleTimeString() }] 
+    };
+  }
+  
+  // Process next player's action if it's a bot
+  return processNextAction(newState);
+}
+
+export function heroRaiseTo(state: TableState, raiseTo: number): TableState {
+  const heroIdx = getHeroIndex(state);
+  if (heroIdx < 0) return state;
+  const hero = state.players[heroIdx];
+  const target = Math.max(raiseTo, hero.bet);
+  const delta = Math.max(0, target - hero.bet);
+  const pay = Math.min(delta, hero.chips);
+  const players = state.players.map((p, i) => i === heroIdx ? { ...p, chips: p.chips - pay, bet: p.bet + pay } : p);
+  const pot = state.pot + pay;
+  const newState = { 
+    ...state, 
+    players, 
+    pot, 
+    currentPlayerIndex: (heroIdx + 1) % state.players.length, // Move to next player
+    actionLog: [...state.actionLog, { message: `${hero.name} raised to ${hero.bet + pay}`, time: new Date().toLocaleTimeString() }] 
+  };
+  
+  // Process next player's action if it's a bot
+  return processNextAction(newState);
+}
+
+// Process the next player's action (bot or human)
+function processNextAction(state: TableState): TableState {
+  // If game is already in showdown or hand is over, don't process more actions
+  if (state.stage === 'Showdown' || state.dealerDrawInProgress) {
+    return state;
+  }
+
+  // Find the next active player who hasn't folded and has chips
+  let nextPlayerIndex = state.currentPlayerIndex;
+  let attempts = 0;
+  const totalPlayers = state.players.length;
+  
+  while (attempts < totalPlayers) {
+    const player = state.players[nextPlayerIndex];
+    
+    // Skip folded players and players with no chips
+    if (!player.hasFolded && player.chips > 0) {
+      // If it's a bot, make a decision
+      if (player.isBot) {
+        return processBotAction(state, nextPlayerIndex);
+      }
+      // If it's the hero's turn, stop and wait for input
+      return { ...state, currentPlayerIndex: nextPlayerIndex };
+    }
+    
+    // Move to next player
+    nextPlayerIndex = (nextPlayerIndex + 1) % totalPlayers;
+    attempts++;
+    
+    // If we've gone all the way around, check if betting round is complete
+    if (nextPlayerIndex === state.currentPlayerIndex) {
+      return advanceToNextStreet(state);
+    }
+  }
+  
+  return state;
+}
+
+// Process a bot's action
+function processBotAction(state: TableState, botIndex: number): TableState {
+  const bot = state.players[botIndex];
+  const highestBet = maxBet(state);
+  const toCall = Math.max(0, highestBet - bot.bet);
+  
+  // Simple bot logic - can be enhanced later
+  const random = Math.random();
+  
+  // 10% chance to fold if facing a bet, 5% otherwise
+  if (toCall > 0 && random < 0.1) {
+    const players = state.players.map((p, i) => 
+      i === botIndex ? { ...p, hasFolded: true } : p
+    );
+    const newState = { 
+      ...state, 
+      players, 
+      currentPlayerIndex: (botIndex + 1) % state.players.length,
+      actionLog: [...state.actionLog, { message: `${bot.name} folded`, time: new Date().toLocaleTimeString() }] 
+    };
+    
+    // Check if hand is over
+    const activePlayers = newState.players.filter(p => !p.hasFolded);
+    if (activePlayers.length <= 1) {
+      return { ...newState, stage: 'Showdown' };
+    }
+    
+    return processNextAction(newState);
+  }
+  
+  // 30% chance to raise if possible
+  if (random < 0.3 && bot.chips > toCall) {
+    const raiseAmount = Math.min(
+      bot.chips - toCall, 
+      Math.max(state.bigBlind, Math.floor(Math.random() * bot.chips * 0.5))
+    );
+    
+    if (raiseAmount > 0) {
+      const pay = toCall + raiseAmount;
+      const players = state.players.map((p, i) => 
+        i === botIndex ? { 
+          ...p, 
+          chips: p.chips - pay, 
+          bet: p.bet + pay 
+        } : p
+      );
+      
+      const newState = { 
+        ...state, 
+        players, 
+        pot: state.pot + pay,
+        currentPlayerIndex: (botIndex + 1) % state.players.length,
+        actionLog: [
+          ...state.actionLog, 
+          { message: `${bot.name} raised to ${highestBet + raiseAmount}`, time: new Date().toLocaleTimeString() }
+        ]
+      };
+      
+      return processNextAction(newState);
+    }
+  }
+  
+  // Otherwise call/check
+  if (toCall > 0) {
+    const pay = Math.min(toCall, bot.chips);
+    const players = state.players.map((p, i) => 
+      i === botIndex ? { 
+        ...p, 
+        chips: p.chips - pay, 
+        bet: p.bet + pay 
+      } : p
+    );
+    
+    const newState = { 
+      ...state, 
+      players, 
+      pot: state.pot + pay,
+      currentPlayerIndex: (botIndex + 1) % state.players.length,
+      actionLog: [
+        ...state.actionLog, 
+        { message: `${bot.name} called ${pay}`, time: new Date().toLocaleTimeString() }
+      ]
+    };
+    
+    return processNextAction(newState);
+  } else {
+    // Check
+    const newState = { 
+      ...state, 
+      currentPlayerIndex: (botIndex + 1) % state.players.length,
+      actionLog: [
+        ...state.actionLog, 
+        { message: `${bot.name} checked`, time: new Date().toLocaleTimeString() }
+      ]
+    };
+    
+    return processNextAction(newState);
+  }
+}
+
+// Advance to the next betting round or showdown
+function advanceToNextStreet(state: TableState): TableState {
+  // Reset player bets for the new street
+  const players = state.players.map(p => ({ ...p, bet: 0 }));
+  
+  // Move to next street
+  if (state.stage === 'PreFlop') {
+    const flopState = proceedToFlop({ ...state, players });
+    return { 
+      ...flopState, 
+      currentPlayerIndex: (state.dealerIndex + 1) % state.players.length,
+      actionLog: [
+        ...flopState.actionLog, 
+        { message: 'Dealing the flop', time: new Date().toLocaleTimeString() }
+      ]
+    };
+  } else if (state.stage === 'Flop') {
+    const turnState = proceedToTurn({ ...state, players });
+    return { 
+      ...turnState, 
+      currentPlayerIndex: (state.dealerIndex + 1) % state.players.length,
+      actionLog: [
+        ...turnState.actionLog, 
+        { message: 'Dealing the turn', time: new Date().toLocaleTimeString() }
+      ]
+    };
+  } else if (state.stage === 'Turn') {
+    const riverState = proceedToRiver({ ...state, players });
+    return { 
+      ...riverState, 
+      currentPlayerIndex: (state.dealerIndex + 1) % state.players.length,
+      actionLog: [
+        ...riverState.actionLog, 
+        { message: 'Dealing the river', time: new Date().toLocaleTimeString() }
+      ]
+    };
+  } else if (state.stage === 'River') {
+    return { 
+      ...state, 
+      players,
+      stage: 'Showdown',
+      actionLog: [
+        ...state.actionLog, 
+        { message: 'Showdown', time: new Date().toLocaleTimeString() }
+      ] 
+    };
+  }
+  
+  return state;
+}
+
+// Export types and functions
+export type { TableState } from '../types/table';
+export { getHeroIndex, maxBet };
+
+// Chip helpers
+export function createDefaultChipStack(initialChipStack?: ChipStack): ChipStack {
+  // Use provided initial chip stack or fall back to default distribution
+  return initialChipStack || {
+    1: 20,
+    5: 20,
+    25: 20,
+    100: 10,
+    500: 5,
+    1000: 5
+  };
+}
+
+export function deductFromChipStack(stack: ChipStack, amount: number): void {
+  // Greedy deduction using highest denominations first
+  const denoms = [1000, 500, 100, 25, 5, 1];
+  let remaining = amount;
+  for (const d of denoms) {
+    const have = stack[d] ?? 0;
+    if (have <= 0) continue;
+    const use = Math.min(Math.floor(remaining / d), have);
+    if (use > 0) {
+      stack[d] = have - use;
+      remaining -= use * d;
+    }
+  }
+  // If couldn't cover exactly, allow negative chips fallback already handled by numeric chips
+}
+
+
+

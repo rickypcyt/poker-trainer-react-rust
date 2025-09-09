@@ -1,6 +1,9 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@theme {
+/* Variables de tema */
+:root {
   --color-background: 0 0% 100%;
   --color-foreground: 222.2 84% 4.9%;
 }
@@ -10,11 +13,12 @@
   --color-foreground: 210 40% 98%;
 }
 
+/* Estilos base */
 body {
   @apply bg-background text-foreground antialiased;
 }
 
-/* Reusable component classes */
+/* Componentes personalizados */
 .navbar {
   @apply sticky top-0 z-20 bg-neutral-950/90 backdrop-blur border-b border-neutral-800;
 }

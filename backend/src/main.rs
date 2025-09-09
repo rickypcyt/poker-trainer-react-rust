@@ -6,6 +6,8 @@ use tower_http::cors::{Any, CorsLayer};
 
 mod poker_engine;
 use poker_engine::*;
+mod bot;
+use bot::{decide as bot_decide_core, BotDecisionRequest, BotDecisionResponse};
 
 // Game state storage
 type GameStore = Arc<Mutex<HashMap<String, GameState>>>;
@@ -122,6 +124,12 @@ async fn reset_game(
     }
 }
 
+// Bot decision endpoint
+async fn bot_decide(Json(req): Json<BotDecisionRequest>) -> Json<BotDecisionResponse> {
+    let decision = bot_decide_core(&req);
+    Json(decision)
+}
+
 #[tokio::main]
 async fn main() {
     let cors = CorsLayer::new()
@@ -141,6 +149,7 @@ async fn main() {
         .route("/api/game/:game_id", get(get_game_state))
         .route("/api/game/:game_id/action", post(player_action))
         .route("/api/game/:game_id/reset", post(reset_game))
+        .route("/api/bot/decide", post(bot_decide))
         .with_state(game_store)
         .layer(cors);
 

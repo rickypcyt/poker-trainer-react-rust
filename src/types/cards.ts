@@ -6,11 +6,13 @@ export interface DeckCard {
   rank: Rank;
 }
 
-export interface PokerCardProps {
+export interface PokerCardProps extends React.HTMLAttributes<HTMLDivElement> {
   suit: Suit;
   rank: Rank;
   isShuffling?: boolean;
   animationDelayMs?: number;
   isHighlighted?: boolean;
+  isFaceDown?: boolean;
+  scale?: number;
 }
 
