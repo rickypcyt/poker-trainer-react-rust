@@ -48,6 +48,49 @@ const rankOrder: Record<string, number> = {
   '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14,
 };
 
+// --- Hand category helper (Preflop) ---
+// Categories based on user's specification:
+// Premium: AA, KK, QQ, AK
+// Good: JJ, TT, AQ, AJ, KQ
+// Speculative: low pairs (22-99 except TT/JJ counted above), suited connectors (within 1-2 gaps, suited)
+// Trash: everything else
+function categorizePreflopHand(hole: Card[]): 'Premium' | 'Good' | 'Speculative' | 'Trash' {
+  if (!hole || hole.length < 2) return 'Trash';
+  const [c1, c2] = hole;
+  const r1 = rankOrder[c1.rank];
+  const r2 = rankOrder[c2.rank];
+  const hi = Math.max(r1, r2);
+  const lo = Math.min(r1, r2);
+  const pair = c1.rank === c2.rank;
+  const suited = c1.suit === c2.suit;
+  const gap = Math.abs(r1 - r2);
+
+  // Map numeric to rank string helper
+  const valueToRank = (v: number) => Object.keys(rankOrder).find(k => rankOrder[k] === v) as Card['rank'];
+  const hiRank = valueToRank(hi);
+  const loRank = valueToRank(lo);
+
+  // Premium set
+  const isAK = (hiRank === 'A' && loRank === 'K');
+  if (pair && (hiRank === 'A' || hiRank === 'K' || hiRank === 'Q')) return 'Premium';
+  if (isAK) return 'Premium';
+
+  // Good set
+  if (pair && (hiRank === 'J' || hiRank === '10')) return 'Good';
+  const isAQ = (hiRank === 'A' && loRank === 'Q');
+  const isAJ = (hiRank === 'A' && loRank === 'J');
+  const isKQ = (hiRank === 'K' && loRank === 'Q');
+  if (isAQ || isAJ || isKQ) return 'Good';
+
+  // Speculative: small pairs 22-99
+  const isSmallPair = pair && hiRank !== 'A' && hiRank !== 'K' && hiRank !== 'Q' && hiRank !== 'J' && hiRank !== '10';
+  // Suited connectors (allow 0-2 gap) and suitedness
+  const suitedConnectors = suited && gap <= 2 && hi >= 5 && lo >= 2; // avoid super low trash like 32s slightly
+  if (isSmallPair || suitedConnectors) return 'Speculative';
+
+  return 'Trash';
+}
+
 function compareHighCard(a: Card, b: Card): number {
   const ra = rankOrder[a.rank];
   const rb = rankOrder[b.rank];
@@ -529,6 +572,204 @@ function decideAndApplyBotAction(state: TableState, botIndex: number): TableStat
 
   // Pot odds proxy
   const potOdds = toCall === 0 ? 0 : toCall / Math.max(1, state.pot + toCall);
+
+  // --- New: Dedicated Preflop logic with sizing, ranges, difficulty, RNG, and stacks/position ---
+  if (isPreflop) {
+    const bb = state.bigBlind;
+    const botBB = Math.floor(bot.chips / bb); // stack depth in big blinds
+    const category = categorizePreflopHand(hole);
+    const opened = highestBet > bb; // someone has already raised beyond BB
+    const currentRaiseToBB = Math.max(2, Math.round(highestBet / bb));
+
+    // Random sizing helpers
+    const rng = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
+    const roundToBB = (x: number) => Math.max(bb * 2, Math.round(x) * bb);
+
+    // Difficulty personality toggles
+    const easy = diff === 'Easy';
+    const hard = diff === 'Hard';
+
+    // Stack rules
+    const shortStack = botBB < 20;
+    const midStack = botBB >= 20 && botBB <= 60;
+    const deepStack = botBB > 60;
+
+    // Determine target action
+    type PreAction = { kind: 'Fold' | 'Call' | 'Raise' | 'AllIn'; raiseTo?: number };
+    const decidePreflop = (): PreAction => {
+      // Short stack policy
+      if (shortStack) {
+        // Only shove or fold generally; easy bots never shove per difficulty rule
+        if (easy) {
+          if (category === 'Premium') {
+            // Min-raise or call instead of shove for easy
+            if (toCall === 0) return { kind: 'Raise', raiseTo: roundToBB(rng(2, 3)) };
+            return { kind: 'Call' };
+          }
+          return { kind: 'Fold' };
+        } else {
+          // Medium/Hard: Shove with premium only (AA, KK, QQ, AK)
+          if (category === 'Premium') return { kind: 'AllIn' };
+          // Facing no raise, can open shove with some frequency with good hands if <15bb
+          // Spec disallows shoving non-premium; skip any non-premium shove here
+          // Otherwise fold or call if pot odds great with speculative
+          if (toCall > 0) {
+            if (category === 'Speculative' && potOdds <= 0.15) return { kind: 'Call' };
+            return { kind: 'Fold' };
+          }
+          return { kind: 'Fold' };
+        }
+      }
+
+      // Mid / Deep stack behavior
+      // Open raise sizing 2x-3x BB with RNG; position affects size a bit
+      const openRaiseToBB = (): number => {
+        let base = rng(2.0, 3.0);
+        if (latePosition) base -= 0.2;
+        if (midStack) base += 0.1;
+        if (deepStack) base += 0.2;
+        return Math.max(2.0, base);
+      };
+
+      // 3-bet sizing 2x-4x previous raise
+      const reraiseToBB = (): number => {
+        const mult = rng(2.0, 4.0);
+        const target = currentRaiseToBB * mult;
+        return Math.max(currentRaiseToBB * 2.0, target);
+      };
+
+      // Choose action by category and difficulty
+      if (!opened) {
+        // Opening ranges
+        if (category === 'Premium') {
+          const raiseTo = easy ? roundToBB(2) : roundToBB(openRaiseToBB());
+          return { kind: 'Raise', raiseTo };
+        } else if (category === 'Good') {
+          const raiseTo = easy ? roundToBB(2) : roundToBB(openRaiseToBB());
+          return { kind: 'Raise', raiseTo };
+        } else if (category === 'Speculative') {
+          // Call or fold; hard may mix in opens late
+          if (hard && latePosition && Math.random() < 0.25) {
+            const raiseTo = roundToBB(Math.max(2, openRaiseToBB() - 0.2));
+            return { kind: 'Raise', raiseTo };
+          }
+          return toCall === 0 ? { kind: 'Call' } : { kind: 'Fold' };
+        } else {
+          // Trash
+          return { kind: 'Fold' };
+        }
+      } else {
+        // Facing a raise (consider 3-bet or call)
+        if (category === 'Premium') {
+          // Occasionally jam deep with AA/KK only on Hard
+          if (hard && deepStack && Math.random() < 0.1) return { kind: 'AllIn' };
+          const raiseTo = easy ? roundToBB(currentRaiseToBB * 2.0) : roundToBB(reraiseToBB());
+          return { kind: 'Raise', raiseTo };
+        } else if (category === 'Good') {
+          // Mix: Medium/Hard sometimes 3-bet; Easy mostly call
+          if (!easy && Math.random() < (hard ? 0.45 : 0.25)) {
+            const raiseTo = roundToBB(Math.max(currentRaiseToBB * 2.0, reraiseToBB() - (hard ? 0 : bb)));
+            return { kind: 'Raise', raiseTo };
+          }
+          // Call if pot odds reasonable, else fold
+          if (potOdds <= 0.33 || latePosition) return { kind: 'Call' };
+          return { kind: 'Fold' };
+        } else if (category === 'Speculative') {
+          // Hard can occasionally 3-bet bluff in position
+          if (hard && latePosition && Math.random() < 0.15) {
+            const raiseTo = roundToBB(Math.max(currentRaiseToBB * 2.0, currentRaiseToBB * rng(2.0, 3.0)));
+            return { kind: 'Raise', raiseTo };
+          }
+          // Otherwise call only with good odds and position
+          if (potOdds <= 0.22 && (latePosition || suited)) return { kind: 'Call' };
+          return { kind: 'Fold' };
+        }
+        // Trash facing a raise
+        return { kind: 'Fold' };
+      }
+    };
+
+    const action = decidePreflop();
+    // Execute action
+    if (action.kind === 'Fold') {
+      const players = state.players.map((p, i) => i === botIndex ? { ...p, hasFolded: true } : p);
+      const newState = {
+        ...state,
+        players,
+        currentPlayerIndex: (botIndex + 1) % state.players.length,
+        actionLog: [...state.actionLog, { message: `${bot.name} folded`, time: new Date().toLocaleTimeString() }]
+      };
+      const activePlayers = newState.players.filter(p => !p.hasFolded);
+      if (activePlayers.length <= 1) return { ...newState, stage: 'Showdown' };
+      return newState;
+    }
+
+    if (action.kind === 'Call') {
+      const pay = Math.min(toCall, bot.chips);
+      const newStack = { ...bot.chipStack };
+      const used = takeFromChipStackGreedy(newStack, pay);
+      const players = state.players.map((p, i) => i === botIndex ? { ...p, chips: p.chips - pay, bet: p.bet + pay, chipStack: newStack } : p);
+      return {
+        ...state,
+        players,
+        pot: state.pot + pay,
+        potStack: addToChipStack({ ...state.potStack }, used),
+        currentPlayerIndex: (botIndex + 1) % state.players.length,
+        actionLog: [...state.actionLog, { message: `${bot.name} called ${pay}`, time: new Date().toLocaleTimeString() }]
+      };
+    }
+
+    if (action.kind === 'AllIn') {
+      const pay = Math.min(bot.chips, toCall + (bot.chips - toCall)); // all remaining chips
+      const newStack = { ...bot.chipStack };
+      const used = takeFromChipStackGreedy(newStack, pay);
+      const players = state.players.map((p, i) => i === botIndex ? { ...p, chips: p.chips - pay, bet: p.bet + pay, chipStack: newStack } : p);
+      return {
+        ...state,
+        players,
+        pot: state.pot + pay,
+        potStack: addToChipStack({ ...state.potStack }, used),
+        currentPlayerIndex: (botIndex + 1) % state.players.length,
+        actionLog: [...state.actionLog, { message: `${bot.name} went all-in (${pay})`, time: new Date().toLocaleTimeString(), isImportant: true }]
+      };
+    }
+
+    // Raise branch
+    if (action.kind === 'Raise' && action.raiseTo) {
+      const targetRaiseTo = Math.max(action.raiseTo, highestBet + state.bigBlind); // ensure legal min raise
+      const raiseAmount = Math.max(0, targetRaiseTo - highestBet);
+      const pay = Math.min(toCall + raiseAmount, bot.chips);
+      if (pay <= 0) {
+        // fallback to call if somehow zero
+        const payCall = Math.min(toCall, bot.chips);
+        const newStackCall = { ...bot.chipStack };
+        const usedCall = takeFromChipStackGreedy(newStackCall, payCall);
+        const playersCall = state.players.map((p, i) => i === botIndex ? { ...p, chips: p.chips - payCall, bet: p.bet + payCall, chipStack: newStackCall } : p);
+        return {
+          ...state,
+          players: playersCall,
+          pot: state.pot + payCall,
+          potStack: addToChipStack({ ...state.potStack }, usedCall),
+          currentPlayerIndex: (botIndex + 1) % state.players.length,
+          actionLog: [...state.actionLog, { message: `${bot.name} called ${payCall}`, time: new Date().toLocaleTimeString() }]
+        };
+      }
+      const newStack = { ...bot.chipStack };
+      const used = takeFromChipStackGreedy(newStack, pay);
+      const players = state.players.map((p, i) => i === botIndex ? { ...p, chips: p.chips - pay, bet: p.bet + pay, chipStack: newStack } : p);
+      return {
+        ...state,
+        players,
+        pot: state.pot + pay,
+        potStack: addToChipStack({ ...state.potStack }, used),
+        currentPlayerIndex: (botIndex + 1) % state.players.length,
+        actionLog: [...state.actionLog, { message: `${bot.name} raised to ${highestBet + raiseAmount}`, time: new Date().toLocaleTimeString() }]
+      };
+    }
+
+    // Safety fallback
+    return state;
+  }
 
   // Difficulty parameter presets
   let raiseCapBB = isPreflop ? 4 : 8; // baseline

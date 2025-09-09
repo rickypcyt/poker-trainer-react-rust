@@ -69,7 +69,7 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
     <div data-position={position} className={`relative flex items-center gap-2 bg-black/20 rounded-lg p-1 ${activeClass} ${foldedClass}`}>
       {/* Action bubble */}
       {actionText && (
-        <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-semibold text-white bg-neutral-900/90 border border-white/20 rounded-full px-3 py-1 shadow-lg whitespace-nowrap">
+        <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-sm font-semibold text-white bg-neutral-900/90 border border-white/20 rounded-full px-3 py-1 shadow-lg whitespace-nowrap">
           {actionText}
         </div>
       )}

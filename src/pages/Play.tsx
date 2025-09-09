@@ -39,6 +39,10 @@ const GAME_CONFIG = {
 const Play: React.FC = () => {
   const navigate = useNavigate();
   const [isLogsOpen, setIsLogsOpen] = React.useState(false);
+  // End-of-hand modal
+  const [isEndModalOpen, setIsEndModalOpen] = React.useState(false);
+  const [endModalResult, setEndModalResult] = React.useState<'won' | 'lost' | null>(null);
+  const lastModalHandRef = React.useRef<number>(-1);
   const [seatActions, setSeatActions] = React.useState<Record<string, string>>({});
   const chipAnchorsRef = React.useRef<Record<string, HTMLDivElement | null>>({});
   const potRef = React.useRef<HTMLDivElement | null>(null);
@@ -142,6 +146,10 @@ const Play: React.FC = () => {
   });
   // Active time limit used by the session for bot thinking
   const [timeLimitSeconds, setTimeLimitSeconds] = React.useState<number>(pendingTimeLimit);
+  // Bot thinking timer tracking
+  const botDeadlineRef = React.useRef<number | null>(null);
+  const botTotalDelayRef = React.useRef<number>(0);
+  const [botTimeLeftMs, setBotTimeLeftMs] = React.useState<number>(0);
 
   const startGameFromSetup = () => {
     // Persist chosen config
@@ -185,6 +193,26 @@ const Play: React.FC = () => {
       console.warn('Failed to save table state', e);
     }
   }, [table]);
+
+  // Show end-of-hand modal at Showdown once per hand
+  React.useEffect(() => {
+    if (table.stage !== 'Showdown') return;
+    if (lastModalHandRef.current === table.handNumber) return;
+    // Try to find the latest winner in the actionLog
+    let heroWon = false;
+    for (let i = table.actionLog.length - 1; i >= 0; i -= 1) {
+      const msg = table.actionLog[i].message || '';
+      const m = msg.match(/^(.*?)\s+wins the pot/i);
+      if (m) {
+        const name = m[1];
+        heroWon = (name === 'You');
+        break;
+      }
+    }
+    setEndModalResult(heroWon ? 'won' : 'lost');
+    setIsEndModalOpen(true);
+    lastModalHandRef.current = table.handNumber;
+  }, [table.stage, table.handNumber, table.actionLog]);
 
   // Show toast for EVERY new log entry; use toastShown flag to avoid duplicates
   React.useEffect(() => {
@@ -261,14 +289,36 @@ const Play: React.FC = () => {
     if (table.botPendingIndex == null) return;
     // Respect time limit for bot thinking; randomize between 60%-100% of the limit, capped at the limit
     const diff: Difficulty = (table.difficulty as Difficulty) ?? 'Medium';
-    const mult = diff === 'Easy' ? 0.6 : diff === 'Hard' ? 1.2 : 1.0;
-    const maxMs = Math.max(700, Math.floor(timeLimitSeconds * 1000 * mult));
-    const delay = Math.min(maxMs, Math.floor(maxMs * (0.6 + Math.random() * 0.4)));
+    const baseLimitMs = Math.max(700, Math.floor(timeLimitSeconds * 1000));
+    // Difficulty shifts the typical thinking time, but must never exceed baseLimitMs
+    const typicalMult = diff === 'Easy' ? 0.7 : diff === 'Hard' ? 0.95 : 0.85;
+    const windowStart = Math.max(0.6, typicalMult - 0.15);
+    const windowEnd = Math.min(1.0, typicalMult + 0.15);
+    const randFactor = windowStart + Math.random() * Math.max(0.05, (windowEnd - windowStart));
+    const delay = Math.min(baseLimitMs, Math.floor(baseLimitMs * randFactor));
+    // Track deadline for UI countdown
+    botDeadlineRef.current = Date.now() + delay;
+    botTotalDelayRef.current = delay;
+    setBotTimeLeftMs(delay);
     const t = setTimeout(() => {
       setTable((prev: TableState) => performBotActionNow(prev));
     }, delay);
     return () => clearTimeout(t);
   }, [table.botPendingIndex, timeLimitSeconds, table.difficulty]);
+
+  // Countdown updater for bot thinking overlay
+  React.useEffect(() => {
+    if (table.botPendingIndex == null || !botDeadlineRef.current) {
+      setBotTimeLeftMs(0);
+      return;
+    }
+    const i = setInterval(() => {
+      if (!botDeadlineRef.current) return;
+      const left = Math.max(0, botDeadlineRef.current - Date.now());
+      setBotTimeLeftMs(left);
+    }, 100);
+    return () => clearInterval(i);
+  }, [table.botPendingIndex]);
 
   // Animate chips to pot when pot increases
   React.useEffect(() => {
@@ -462,6 +512,42 @@ const Play: React.FC = () => {
                   <label htmlFor="bots" className="text-white/80 text-sm">Number of Bots</label>
                   <span className="text-white font-semibold">{pendingNumBots}</span>
                 </div>
+      {/* End of hand modal */}
+      {isEndModalOpen && endModalResult && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/70" />
+          <div className="relative bg-slate-900 text-white rounded-xl shadow-2xl border border-white/10 w-[92vw] max-w-[520px] p-6">
+            <div className="text-center mb-4">
+              <div className={`text-2xl font-extrabold ${endModalResult === 'won' ? 'text-green-400' : 'text-red-400'}`}>
+                {endModalResult === 'won' ? 'You Won!' : 'You Lost'}
+              </div>
+              <div className="text-sm text-white/80 mt-1">¿Quieres ver el log de la mano o empezar un nuevo juego?</div>
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button
+                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 rounded-md shadow"
+                onClick={() => { setIsLogsOpen(true); setIsEndModalOpen(false); }}
+              >
+                Ver Log
+              </button>
+              <button
+                className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white font-semibold py-2 rounded-md shadow"
+                onClick={() => { setIsEndModalOpen(false); handleNewHand(); }}
+              >
+                Nueva mano
+              </button>
+            </div>
+            <div className="flex gap-3 mt-3">
+              <button
+                className="w-full bg-red-700 hover:bg-red-600 text-white font-semibold py-2 rounded-md shadow"
+                onClick={() => { setIsEndModalOpen(false); handleEndGame(); }}
+              >
+                Nuevo game
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
                 <input
                   id="bots"
                   type="range"
@@ -472,7 +558,7 @@ const Play: React.FC = () => {
                   onChange={(e) => setPendingNumBots(parseInt(e.target.value))}
                   className="w-full accent-yellow-400"
                 />
-                <div className="flex justify-between text-white/50 text-xs mt-1">
+                <div className="flex justify-between text-white/50 text-sm mt-1">
                   {[1,2,3,4,5].map(n => (<span key={n}>{n}</span>))}
                 </div>
               </div>
@@ -585,57 +671,53 @@ const Play: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
-              <div className="flex gap-2">
-                <button 
-                  className={`font-semibold px-4 py-2 rounded-md flex-1 transition-colors shadow-md ${
-                    table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
-                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-red-700 hover:bg-red-600 text-white'
-                  }`}
-                  onClick={() => handlePlayerAction('Fold')}
-                  disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
-                >
-                  Fold
-                </button>
-                <button 
-                  className={`font-semibold px-4 py-2 rounded-md flex-1 transition-colors shadow-md ${
-                    table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
-                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-blue-700 hover:bg-blue-600 text-white'
-                  }`}
-                  onClick={() => handlePlayerAction('Call')}
-                  disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
-                >
-                  {(() => {
-                    const hero = table.players[getHeroIndex(table)];
-                    const toCall = Math.max(0, maxBet(table) - (hero?.bet || 0));
-                    if (toCall === 0) return 'Check';
-                    if (toCall >= (hero?.chips || 0)) return `All-in $${hero?.chips}`;
-                    return `Call $${toCall}`;
-                  })()}
-                </button>
-              </div>
-              <div className="flex">
-                <button 
-                  className={`font-semibold px-6 py-2 rounded-md w-full transition-colors shadow-md ${
-                    table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
-                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-yellow-600 hover:bg-yellow-500 text-white'
-                  }`}
-                  onClick={() => handlePlayerAction('Raise')}
-                  disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
-                >
-                  {(() => {
-                    const hero = table.players[getHeroIndex(table)];
-                    const toCall = Math.max(0, maxBet(table) - (hero?.bet || 0));
-                    const minRaise = Math.max(table.bigBlind, maxBet(table) * 2 - (hero?.bet || 0));
-                    if ((hero?.chips || 0) <= toCall) return 'All-in';
-                    if (toCall > 0) return `Raise to $${minRaise}`;
-                    return `Raise $${minRaise}`;
-                  })()}
-                </button>
-              </div>
+            <div className="flex flex-row flex-wrap gap-2 items-stretch">
+              <button 
+                className={`font-semibold px-4 py-2 rounded-md flex-1 min-w-[120px] transition-colors shadow-md ${
+                  table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-red-700 hover:bg-red-600 text-white'
+                }`}
+                onClick={() => handlePlayerAction('Fold')}
+                disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
+              >
+                Fold
+              </button>
+              <button 
+                className={`font-semibold px-4 py-2 rounded-md flex-1 min-w-[140px] transition-colors shadow-md ${
+                  table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-blue-700 hover:bg-blue-600 text-white'
+                }`}
+                onClick={() => handlePlayerAction('Call')}
+                disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
+              >
+                {(() => {
+                  const hero = table.players[getHeroIndex(table)];
+                  const toCall = Math.max(0, maxBet(table) - (hero?.bet || 0));
+                  if (toCall === 0) return 'Check';
+                  if (toCall >= (hero?.chips || 0)) return `All-in $${hero?.chips}`;
+                  return `Call $${toCall}`;
+                })()}
+              </button>
+              <button 
+                className={`font-semibold px-6 py-2 rounded-md flex-1 min-w-[160px] transition-colors shadow-md ${
+                  table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-yellow-600 hover:bg-yellow-500 text-white'
+                }`}
+                onClick={() => handlePlayerAction('Raise')}
+                disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
+              >
+                {(() => {
+                  const hero = table.players[getHeroIndex(table)];
+                  const toCall = Math.max(0, maxBet(table) - (hero?.bet || 0));
+                  const minRaise = Math.max(table.bigBlind, maxBet(table) * 2 - (hero?.bet || 0));
+                  if ((hero?.chips || 0) <= toCall) return 'All-in';
+                  if (toCall > 0) return `Raise to $${minRaise}`;
+                  return `Raise $${minRaise}`;
+                })()}
+              </button>
             </div>
           )}
           
@@ -762,6 +844,30 @@ const Play: React.FC = () => {
         
         
       </div>
+      {/* Bot time limit overlay */}
+      {table.botPendingIndex != null && botTotalDelayRef.current > 0 && (
+        <div className="pointer-events-none fixed z-[70] top-3 right-3 bg-black/70 text-white px-3 py-2 rounded-lg shadow border border-white/20">
+          {(() => {
+            const idx = table.botPendingIndex as number;
+            const actor = table.players[idx];
+            const secs = Math.max(0, botTimeLeftMs) / 1000;
+            const pct = Math.max(0, Math.min(1, botTotalDelayRef.current ? (1 - botTimeLeftMs / botTotalDelayRef.current) : 0));
+            return (
+              <div className="min-w-[180px]">
+                <div className="text-sm font-semibold mb-1 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+                  Thinking: {actor?.isHero ? 'You' : actor?.name}
+                </div>
+                <div className="text-xs opacity-80 mb-1">Time left: {secs.toFixed(1)}s</div>
+                <div className="h-2 w-full bg-white/15 rounded">
+                  <div className="h-full bg-yellow-400 rounded" style={{ width: `${pct * 100}%` }} />
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Flying chips overlay (fixed to viewport for smooth animation) */}
       {flyingChips.map((c) => (
         <div

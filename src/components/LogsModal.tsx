@@ -1,5 +1,5 @@
-import React from 'react';
 import type { ActionLogEntry } from '../types/table';
+import React from 'react';
 
 type LogsModalProps = {
   isOpen: boolean;
@@ -51,11 +51,11 @@ const LogsModal: React.FC<LogsModalProps> = ({ isOpen, onClose, entries, onClear
             <ul className="space-y-2">
               {entries.map((e, idx) => (
                 <li key={idx} className="flex items-start gap-3 p-2 rounded-lg bg-white/5 border border-white/10">
-                  <span className="text-xs text-white/50 font-mono mt-0.5">{e.time}</span>
+                  <span className="text-sm text-white/50 font-mono mt-0.5">{e.time}</span>
                   <div className="flex-1">
                     <div className={`text-sm ${e.isImportant ? 'font-bold text-yellow-200' : 'text-white/90'}`}>{e.message}</div>
                     {e.winner && e.winningCard && (
-                      <div className="text-xs text-white/70 mt-0.5">Winner: {e.winner} — {e.winningCard}</div>
+                      <div className="text-sm text-white/70 mt-0.5">Winner: {e.winner} — {e.winningCard}</div>
                     )}
                   </div>
                 </li>
