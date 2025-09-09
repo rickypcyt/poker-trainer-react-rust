@@ -43,7 +43,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               Poker Trainer
             </h1>
             {subtitle && (
-              <p className="text-white/60 text-sm hidden sm:block">{subtitle}</p>
+              <p className="text-white/60 text-base hidden sm:block">{subtitle}</p>
             )}
           </div>
 

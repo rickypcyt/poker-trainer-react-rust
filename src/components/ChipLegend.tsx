@@ -5,7 +5,7 @@ import React from 'react';
 const ChipLegend: React.FC = () => {
   const denomsAsc = [...CHIP_DENOMS].reverse(); // 1 -> 1000
   return (
-    <div className="bg-white/10 border border-white/20 rounded-xl p-3 text-white text-sm">
+    <div className="bg-white/10 border border-white/20 rounded-xl p-3 text-white text-base">
       <div className="font-semibold mb-2">Chip Legend</div>
       <div className="flex flex-col gap-2">
         {denomsAsc.map((d) => (

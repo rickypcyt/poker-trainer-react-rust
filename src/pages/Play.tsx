@@ -509,7 +509,7 @@ const Play: React.FC = () => {
             <div className="space-y-5">
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label htmlFor="bots" className="text-white/80 text-sm">Number of Bots</label>
+                  <label htmlFor="bots" className="text-white/80 text-base">Number of Bots</label>
                   <span className="text-white font-semibold">{pendingNumBots}</span>
                 </div>
       {/* End of hand modal */}
@@ -521,7 +521,7 @@ const Play: React.FC = () => {
               <div className={`text-2xl font-extrabold ${endModalResult === 'won' ? 'text-green-400' : 'text-red-400'}`}>
                 {endModalResult === 'won' ? 'You Won!' : 'You Lost'}
               </div>
-              <div className="text-sm text-white/80 mt-1">¿Quieres ver el log de la mano o empezar un nuevo juego?</div>
+              <div className="text-base text-white/80 mt-1">¿Quieres ver el log de la mano o empezar un nuevo juego?</div>
             </div>
             <div className="flex gap-3 mt-4">
               <button
@@ -558,13 +558,13 @@ const Play: React.FC = () => {
                   onChange={(e) => setPendingNumBots(parseInt(e.target.value))}
                   className="w-full accent-yellow-400"
                 />
-                <div className="flex justify-between text-white/50 text-sm mt-1">
+                <div className="flex justify-between text-white/50 text-base mt-1">
                   {[1,2,3,4,5].map(n => (<span key={n}>{n}</span>))}
                 </div>
               </div>
 
               <div>
-                <div className="text-white/80 text-sm mb-2">Buy-in</div>
+                <div className="text-white/80 text-base mb-2">Buy-in</div>
                 <div className="flex gap-2 justify-center">
                   {presetBuyins.map(v => (
                     <button
@@ -580,7 +580,7 @@ const Play: React.FC = () => {
 
               {/* Difficulty selector */}
               <div>
-                <div className="text-white/80 text-sm mb-2">Difficulty</div>
+                <div className="text-white/80 text-base mb-2">Difficulty</div>
                 <div className="grid grid-cols-3 gap-2">
                   {([
                     { key: 'Easy', label: '🟢 Easy' },
@@ -590,7 +590,7 @@ const Play: React.FC = () => {
                     <button
                       key={opt.key}
                       onClick={() => setPendingDifficulty(opt.key)}
-                      className={`px-3 py-2 rounded-lg border text-sm transition-colors ${pendingDifficulty === opt.key ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'}`}
+                      className={`px-3 py-2 rounded-lg border text-base transition-colors ${pendingDifficulty === opt.key ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'}`}
                     >
                       <div className="leading-tight font-semibold">{opt.label}</div>
                     </button>
@@ -600,7 +600,7 @@ const Play: React.FC = () => {
               {/* Time limit selector */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-white/80 text-sm">Time Limit (AI)</label>
+                  <label className="text-white/80 text-base">Time Limit (AI)</label>
                   <span className="text-white font-semibold">{pendingTimeLimit}s</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
@@ -608,7 +608,7 @@ const Play: React.FC = () => {
                     <button
                       key={sec}
                       onClick={() => setPendingTimeLimit(sec)}
-                      className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${pendingTimeLimit === sec ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'}`}
+                      className={`px-3 py-1.5 rounded-lg border text-base transition-colors ${pendingTimeLimit === sec ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'}`}
                     >
                       {sec}s
                     </button>
@@ -653,7 +653,7 @@ const Play: React.FC = () => {
 
         {/* Buttons card right */}
         <div className="absolute right-2 bottom-2 bg-gray-900/90 backdrop-blur-md rounded-xl p-3 border border-gray-600/50 shadow-xl">
-          <h3 className="text-white font-bold text-center mb-2 text-sm uppercase tracking-wider">Controls</h3>
+          <h3 className="text-white font-bold text-center mb-2 text-base uppercase tracking-wider">Controls</h3>
           
           {table.dealerDrawInProgress && !table.dealerDrawRevealed ? (
             <div className="flex justify-center">
@@ -721,7 +721,7 @@ const Play: React.FC = () => {
             </div>
           )}
           
-          <div className="text-white/90 text-center text-sm mt-3 font-medium">
+          <div className="text-white/90 text-center text-base mt-3 font-medium">
             <div className="bg-gray-800/80 py-1 px-2 rounded">
               <span className="text-yellow-400 ml-1">{table.stage}</span>
             </div>
@@ -778,7 +778,7 @@ const Play: React.FC = () => {
                           className="w-full h-full"
                         />
                       ) : (
-                        <span className="text-white/30 text-sm sm:text-base md:text-lg font-bold">{i + 1}</span>
+                        <span className="text-white/30 text-base sm:text-base md:text-lg font-bold">{i + 1}</span>
                       )}
                     </div>
                   ))}
@@ -854,7 +854,7 @@ const Play: React.FC = () => {
             const pct = Math.max(0, Math.min(1, botTotalDelayRef.current ? (1 - botTimeLeftMs / botTotalDelayRef.current) : 0));
             return (
               <div className="min-w-[180px]">
-                <div className="text-sm font-semibold mb-1 flex items-center gap-2">
+                <div className="text-base font-semibold mb-1 flex items-center gap-2">
                   <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
                   Thinking: {actor?.isHero ? 'You' : actor?.name}
                 </div>

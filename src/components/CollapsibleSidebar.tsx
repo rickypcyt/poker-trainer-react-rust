@@ -116,7 +116,7 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
         <div className="sticky top-0 z-10 bg-neutral-800/90 border-b border-neutral-700/50 px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white text-sm font-bold shadow-md">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white text-base font-bold shadow-md">
                 📝
               </div>
               <h3 className="text-white font-bold text-lg">Action Log & Tips</h3>
@@ -132,14 +132,14 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
           {visibleEntries.map((entry, index) => (
             <div key={`log-${index}`} className="bg-neutral-800/60 rounded-xl p-4 border border-neutral-700/40 hover:bg-neutral-800/80 transition-colors duration-200">
               <div className="flex flex-col gap-2">
-                <div className={`px-3 py-1 rounded-lg border text-sm font-medium w-fit ${stageBadgeClass(entry.stage)}`}>
+                <div className={`px-3 py-1 rounded-lg border text-base font-medium w-fit ${stageBadgeClass(entry.stage)}`}>
                   {stageLabel(entry.stage)}
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="text-lg flex-shrink-0">{logKindIcon(entry.kind || 'Info')}</span>
                   <div className="min-w-0">
                     <p className="text-white/90 leading-relaxed">{entry.message}</p>
-                    <div className="text-neutral-400 text-sm font-medium mt-1">
+                    <div className="text-neutral-400 text-base font-medium mt-1">
                       {entry.time}
                     </div>
                   </div>
@@ -150,7 +150,7 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
           {visibleEntries.length === 0 && (
             <div className="text-center py-8 text-neutral-400">
               <div className="text-4xl mb-2">📋</div>
-              <p className="text-sm">No actions yet</p>
+              <p className="text-base">No actions yet</p>
             </div>
           )}
           <div ref={endOfFeedRef} />
@@ -158,7 +158,7 @@ const CollapsibleSidebar: React.FC<CollapsibleSidebarProps> = ({
         {onClearLog && (
           <div className="sticky bottom-0 z-10 bg-neutral-800/90 border-t border-neutral-700/50 px-4 py-3">
             <button 
-              className="group flex items-center justify-center space-x-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 border-2 border-red-500 hover:border-red-400 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-all duration-300 hover:scale-105 w-full shadow-lg hover:shadow-xl" 
+              className="group flex items-center justify-center space-x-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 border-2 border-red-500 hover:border-red-400 text-white px-4 py-2.5 rounded-xl font-bold text-base transition-all duration-300 hover:scale-105 w-full shadow-lg hover:shadow-xl" 
               onClick={onClearLog}
             >
               <div className="w-5 h-5 bg-red-500 rounded-lg flex items-center justify-center group-hover:bg-red-400 transition-colors duration-300">

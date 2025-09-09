@@ -45,7 +45,7 @@ const MainMenu: React.FC = () => {
                   </div>
                   <div className="flex-1 text-left">
                     <h3 className="text-white text-xl font-bold mb-1">Play with Bots</h3>
-                    <p className="text-white/70 text-sm">Challenge AI opponents</p>
+                    <p className="text-white/70 text-base">Challenge AI opponents</p>
                   </div>
                   <div className="text-white/50 group-hover:text-white/80 transition-colors">
                     →
@@ -67,7 +67,7 @@ const MainMenu: React.FC = () => {
                   </div>
                   <div className="flex-1 text-left">
                     <h3 className="text-white text-xl font-bold mb-1">Pre Flop Trainer</h3>
-                    <p className="text-white/70 text-sm">Practice against the house</p>
+                    <p className="text-white/70 text-base">Practice against the house</p>
                   </div>
                   <div className="text-white/50 group-hover:text-white/80 transition-colors">
                     →
@@ -88,7 +88,7 @@ const MainMenu: React.FC = () => {
                   </div>
                   <div className="flex-1 text-left">
                     <h3 className="text-white text-xl font-bold mb-1">Card Shuffler</h3>
-                    <p className="text-white/70 text-sm">Practice with secure shuffling</p>
+                    <p className="text-white/70 text-base">Practice with secure shuffling</p>
                   </div>
                   <div className="text-white/50 group-hover:text-white/80 transition-colors">
                     →
@@ -100,7 +100,7 @@ const MainMenu: React.FC = () => {
 
           {/* Footer */}
           <div className="mt-8 pt-6 border-t border-white/20">
-            <p className="text-white/60 text-center text-sm">
+            <p className="text-white/60 text-center text-base">
               🎲 Built for poker enthusiasts
             </p>
           </div>

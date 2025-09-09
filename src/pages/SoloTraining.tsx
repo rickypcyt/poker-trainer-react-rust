@@ -168,7 +168,7 @@ const SoloTraining: React.FC = () => {
             onClick={initializeGame}
           >
             <div className="w-5 h-5 bg-blue-500/30 rounded-md flex items-center justify-center group-hover:bg-blue-500/50 transition-colors duration-300">
-              <span className="text-sm">🔄</span>
+              <span className="text-base">🔄</span>
             </div>
             <span>Try Again</span>
           </button>
@@ -244,7 +244,7 @@ const SoloTraining: React.FC = () => {
                         isShuffling={isShuffling}
                         isHighlighted={isCardHighlighted(card)}
                       />
-                      <span className="text-white/70 text-sm mt-2 font-medium">Flop</span>
+                      <span className="text-white/70 text-base mt-2 font-medium">Flop</span>
                     </div>
                   ))}
                   
@@ -257,7 +257,7 @@ const SoloTraining: React.FC = () => {
                         isShuffling={isShuffling}
                         isHighlighted={isCardHighlighted(gameState.board[3])}
                       />
-                      <span className="text-white/70 text-sm mt-2 font-medium">Turn</span>
+                      <span className="text-white/70 text-base mt-2 font-medium">Turn</span>
                     </div>
                   )}
                   
@@ -270,7 +270,7 @@ const SoloTraining: React.FC = () => {
                         isShuffling={isShuffling}
                         isHighlighted={isCardHighlighted(gameState.board[4])}
                       />
-                      <span className="text-white/70 text-sm mt-2 font-medium">River</span>
+                      <span className="text-white/70 text-base mt-2 font-medium">River</span>
                     </div>
                   )}
                 </div>
@@ -309,7 +309,7 @@ const SoloTraining: React.FC = () => {
                             rank={card.rank} 
                             isShuffling={isShuffling} 
                           />
-                          <span className="text-white/70 text-sm mt-2 font-medium">Flop Burn</span>
+                          <span className="text-white/70 text-base mt-2 font-medium">Flop Burn</span>
                         </div>
                       ))}
                     </>
@@ -323,7 +323,7 @@ const SoloTraining: React.FC = () => {
                         rank={gameState.burned_cards[3].rank} 
                         isShuffling={isShuffling} 
                       />
-                      <span className="text-white/70 text-sm mt-2 font-medium">Turn Burn</span>
+                      <span className="text-white/70 text-base mt-2 font-medium">Turn Burn</span>
                     </div>
                   )}
                   
@@ -335,7 +335,7 @@ const SoloTraining: React.FC = () => {
                         rank={gameState.burned_cards[4].rank} 
                         isShuffling={isShuffling} 
                       />
-                      <span className="text-white/70 text-sm mt-2 font-medium">River Burn</span>
+                      <span className="text-white/70 text-base mt-2 font-medium">River Burn</span>
                     </div>
                   )}
                 </div>
@@ -352,7 +352,7 @@ const SoloTraining: React.FC = () => {
                   disabled={gameState.stage !== 'PreFlop' || loading}
                 >
                   <div className="w-6 h-6 bg-red-500 rounded-lg flex items-center justify-center group-hover:bg-red-400 transition-colors duration-300">
-                    <span className="text-sm font-bold">✕</span>
+                    <span className="text-base font-bold">✕</span>
                   </div>
                   <span>{loading ? '...' : 'Fold'}</span>
                 </button>
@@ -362,7 +362,7 @@ const SoloTraining: React.FC = () => {
                   disabled={gameState.stage !== 'PreFlop' || loading}
                 >
                   <div className="w-6 h-6 bg-blue-500 rounded-lg flex items-center justify-center group-hover:bg-blue-400 transition-colors duration-300">
-                    <span className="text-sm font-bold">✓</span>
+                    <span className="text-base font-bold">✓</span>
                   </div>
                   <span>{loading ? '...' : 'Check'}</span>
                 </button>
@@ -372,15 +372,15 @@ const SoloTraining: React.FC = () => {
               <div className={`bg-white/10 rounded-xl p-4 text-center ${isPreflop ? 'mt-12 sm:mt-16' : ''}`}>
                 <div className="grid grid-cols-3 gap-4 text-white/80">
                   <div className="flex flex-col">
-                    <span className="text-sm text-white/60">Stage</span>
+                    <span className="text-base text-white/60">Stage</span>
                     <span className="font-semibold text-white">{stageLabel(gameState.stage)}</span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-sm text-white/60">Pot</span>
+                    <span className="text-base text-white/60">Pot</span>
                     <span className="font-semibold text-white">${gameState.pot}</span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-sm text-white/60">Deck</span>
+                    <span className="text-base text-white/60">Deck</span>
                     <span className="font-semibold text-white">{gameState.deck.length}</span>
                   </div>
                 </div>
@@ -396,7 +396,7 @@ const SoloTraining: React.FC = () => {
         <div className="sticky top-0 z-10 bg-neutral-800/90 border-b border-neutral-700/50 px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white text-sm font-bold shadow-md">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white text-base font-bold shadow-md">
                 📝
               </div>
               <h3 className="text-white font-bold text-lg">Action Log & Tips</h3>
@@ -407,14 +407,14 @@ const SoloTraining: React.FC = () => {
           {gameState.logs.map((entry, idx) => (
             <div key={`log-${idx}`} className="bg-neutral-800/60 rounded-xl p-4 border border-neutral-700/40 hover:bg-neutral-800/80 transition-colors duration-200">
               <div className="flex flex-col gap-2">
-                <div className={`px-3 py-1 rounded-lg border text-sm font-medium w-fit ${stageBadgeClass(entry.stage)}`}>
+                <div className={`px-3 py-1 rounded-lg border text-base font-medium w-fit ${stageBadgeClass(entry.stage)}`}>
                   {stageLabel(entry.stage)}
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="text-lg flex-shrink-0">{logKindIcon(entry.kind)}</span>
                   <div className="min-w-0">
                     <p className="text-white/90 leading-relaxed">{entry.message}</p>
-                    <div className="text-neutral-400 text-sm font-medium mt-1">
+                    <div className="text-neutral-400 text-base font-medium mt-1">
                       {entry.time}
                     </div>
                   </div>
@@ -425,17 +425,17 @@ const SoloTraining: React.FC = () => {
           {gameState.logs.length === 0 && (
             <div className="text-center py-8 text-neutral-400">
               <div className="text-4xl mb-2">📋</div>
-              <p className="text-sm">No actions yet</p>
+              <p className="text-base">No actions yet</p>
             </div>
           )}
         </div>
         <div className="sticky bottom-0 z-10 bg-neutral-800/90 border-t border-neutral-700/50 px-4 py-3">
           <button 
-            className="group flex items-center justify-center space-x-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 border-2 border-red-500 hover:border-red-400 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-all duration-300 hover:scale-105 w-full shadow-lg hover:shadow-xl" 
+            className="group flex items-center justify-center space-x-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 border-2 border-red-500 hover:border-red-400 text-white px-4 py-2.5 rounded-xl font-bold text-base transition-all duration-300 hover:scale-105 w-full shadow-lg hover:shadow-xl" 
             onClick={() => setGameState(prev => prev ? { ...prev, logs: [] } : null)}
           >
             <div className="w-5 h-5 bg-red-500 rounded-lg flex items-center justify-center group-hover:bg-red-400 transition-colors duration-300">
-              <span className="text-sm font-bold">🗑️</span>
+              <span className="text-base font-bold">🗑️</span>
             </div>
             <span>Clear Log</span>
           </button>

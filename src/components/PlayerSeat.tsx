@@ -69,7 +69,7 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
     <div data-position={position} className={`relative flex items-center gap-2 bg-black/20 rounded-lg p-1 ${activeClass} ${foldedClass}`}>
       {/* Action bubble */}
       {actionText && (
-        <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-sm font-semibold text-white bg-neutral-900/90 border border-white/20 rounded-full px-3 py-1 shadow-lg whitespace-nowrap">
+        <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-base font-semibold text-white bg-neutral-900/90 border border-white/20 rounded-full px-3 py-1 shadow-lg whitespace-nowrap">
           {actionText}
         </div>
       )}
@@ -81,11 +81,11 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
       <div className="group relative flex flex-col items-center">
         <div className={`flex items-center justify-center gap-2`}>
           <div className="text-2xl leading-none">{avatar}</div>
-          <span className="text-white/90 font-bold text-sm">{name}</span>
+          <span className="text-white/90 font-bold text-base">{name}</span>
           <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold text-white border ${tagClass}`}>
             {tag || ' '}
           </span>
-          <span className="text-white/80 font-semibold text-sm">${player.chips.toLocaleString()}</span>
+          <span className="text-white/80 font-semibold text-base">${player.chips.toLocaleString()}</span>
         </div>
         {isThinking && !player.hasFolded && (
           <div className="mt-1 flex items-center justify-center gap-1 text-[11px] text-white/80">

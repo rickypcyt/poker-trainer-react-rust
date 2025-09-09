@@ -25,7 +25,7 @@ const LogsModal: React.FC<LogsModalProps> = ({ isOpen, onClose, entries, onClear
           <div className="flex items-center gap-2">
             {onClear && (
               <button
-                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm border border-white/20"
+                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-base border border-white/20"
                 onClick={onClear}
               >
                 Clear
@@ -51,11 +51,11 @@ const LogsModal: React.FC<LogsModalProps> = ({ isOpen, onClose, entries, onClear
             <ul className="space-y-2">
               {entries.map((e, idx) => (
                 <li key={idx} className="flex items-start gap-3 p-2 rounded-lg bg-white/5 border border-white/10">
-                  <span className="text-sm text-white/50 font-mono mt-0.5">{e.time}</span>
+                  <span className="text-base text-white/50 font-mono mt-0.5">{e.time}</span>
                   <div className="flex-1">
-                    <div className={`text-sm ${e.isImportant ? 'font-bold text-yellow-200' : 'text-white/90'}`}>{e.message}</div>
+                    <div className={`text-base ${e.isImportant ? 'font-bold text-yellow-200' : 'text-white/90'}`}>{e.message}</div>
                     {e.winner && e.winningCard && (
-                      <div className="text-sm text-white/70 mt-0.5">Winner: {e.winner} — {e.winningCard}</div>
+                      <div className="text-base text-white/70 mt-0.5">Winner: {e.winner} — {e.winningCard}</div>
                     )}
                   </div>
                 </li>
