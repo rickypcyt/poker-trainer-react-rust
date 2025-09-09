@@ -15,6 +15,9 @@ interface PlayerSeatProps {
   isActive?: boolean;
   position?: 'left' | 'right' | 'top' | 'bottom';
   gameStage?: string; // Game stage to control card visibility
+  isThinking?: boolean;
+  actionText?: string;
+  chipAnchorRef?: (el: HTMLDivElement | null) => void;
 }
 
 const PlayerSeat: React.FC<PlayerSeatProps> = ({ 
@@ -27,7 +30,10 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
   showDrawCard = false, 
   isActive = false,
   position = 'bottom',
-  gameStage = 'PreFlop'
+  gameStage = 'PreFlop',
+  isThinking = false,
+  actionText,
+  chipAnchorRef
 }) => {
   const tag = isDealer ? 'D' : isSmallBlind ? 'SB' : isBigBlind ? 'BB' : '';
   const tagClass = isDealer
@@ -44,77 +50,68 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
   const isShowdown = reveal || gameStage === 'Showdown';
   const shouldShowCards = isHero || isShowdown;
 
-  // For dealer draw, show only the draw card. For regular play, show hole cards
+  // For dealer draw, show only the draw card. For regular play, show hole cards.
+  // When hole cards are unknown, provide valid placeholder cards; they'll be face-down via isFaceDown.
   const cards = showDrawCard && drawCard 
     ? [drawCard] // Only show the draw card during dealer draw
     : (player.holeCards?.length === 2 ? player.holeCards : [
-        { suit: 'back' as any, rank: 'back' as any } as Card, 
-        { suit: 'back' as any, rank: 'back' as any } as Card
+        { suit: 'spades', rank: 'A' } as Card,
+        { suit: 'hearts', rank: 'K' } as Card
       ]);
   
   const faceDown = showDrawCard ? !reveal : (player.isBot && !shouldShowCards);
   const avatar = isHero ? '🧑‍💻' : '🤖';
 
+  const foldedClass = player.hasFolded ? 'opacity-50 grayscale' : '';
+  const activeClass = isActive ? 'ring-4 ring-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.35)]' : '';
+
   return (
-    <div className={`flex items-center gap-3 ${position === 'right' ? 'flex-row-reverse' : 'flex-row'} ${isActive ? 'ring-2 ring-yellow-400 rounded-lg p-2' : ''} bg-black/20 rounded-lg p-1`}>
-      {/* Cards - show 1 card for dealer draw, 2 cards for regular play */}
-      <div className="flex gap-0.5">
-        {cards.map((c, i) => (
-          <div key={i} className="relative" style={{ transform: `translateX(${i * -8}px)` }}>
-            <PokerCard 
-              suit={c.suit} 
-              rank={c.rank} 
-              isFaceDown={faceDown || (c.suit as any) === 'back'} 
-              scale={isHero ? 0.8 : (shouldShowCards ? 0.7 : 0.5)}
-              className={`${isHero || shouldShowCards ? '[--card-rank-size:1.1rem] [--card-suit-size:1.1rem]' : '[--card-rank-size:0.9rem] [--card-suit-size:0.9rem]'} 
-                hover:z-10 hover:transform hover:translate-y-[-5px] transition-all duration-200`}
-            />
-          </div>
-        ))}
-      </div>
-
-      {/* Player info */}
-      <div className="group relative">
-        <div className={`flex items-center gap-2 ${position === 'right' ? 'flex-row-reverse' : 'flex-row'}`}>
-          <div className="text-2xl">{avatar}</div>
-          <div className={`flex flex-col ${position === 'right' ? 'items-end' : 'items-start'}`}>
-            <div className="flex items-center gap-1.5">
-              {position === 'right' && (
-                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold text-white border ${tagClass}`}>
-                  {tag || ' '}
-                </span>
-              )}
-              <span className="text-white/90 font-bold text-sm">{name}</span>
-              {position !== 'right' && (
-                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold text-white border ${tagClass}`}>
-                  {tag || ' '}
-                </span>
-              )}
-            </div>
-            <div className="text-white/80 font-semibold text-sm">${player.chips.toLocaleString()}</div>
-            
-            {/* Detailed chip stack on hover */}
-            <div className={`opacity-0 group-hover:opacity-100 transition-opacity duration-200 absolute ${position === 'right' ? 'right-0' : 'left-0'} top-full mt-1 bg-white/95 backdrop-blur-sm rounded-lg p-3 border border-gray-200 shadow-xl z-10 min-w-[140px]`}>
-              <div className="text-gray-800 text-sm font-bold mb-2">Chip Stack</div>
-              <div className="flex flex-col gap-2">
-                {Object.entries(player.chipStack).sort(([a], [b]) => Number(b) - Number(a)).map(([denom, count]) => (
-                  count > 0 && (
-                    <div key={denom} className="flex justify-between items-center text-sm">
-                      <span className="text-gray-600">${denom}:</span>
-                      <span className="font-mono font-medium text-gray-800">{count} × ${denom}</span>
-                    </div>
-                  )
-                ))}
-              </div>
-            </div>
-          </div>
+    <div data-position={position} className={`relative flex items-center gap-2 bg-black/20 rounded-lg p-1 ${activeClass} ${foldedClass}`}>
+      {/* Action bubble */}
+      {actionText && (
+        <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-semibold text-white bg-neutral-900/90 border border-white/20 rounded-full px-3 py-1 shadow-lg whitespace-nowrap">
+          {actionText}
         </div>
-      </div>
-
-
-      {/* Chips stack */}
-      <div className="mt-0.5">
+      )}
+      {/* Left: Chip column */}
+      <div className="flex shrink-0" ref={chipAnchorRef}>
         <ChipStack stack={player.chipStack} />
+      </div>
+      {/* Right: Header + Cards */}
+      <div className="group relative flex flex-col items-center">
+        <div className={`flex items-center justify-center gap-2`}>
+          <div className="text-2xl leading-none">{avatar}</div>
+          <span className="text-white/90 font-bold text-sm">{name}</span>
+          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold text-white border ${tagClass}`}>
+            {tag || ' '}
+          </span>
+          <span className="text-white/80 font-semibold text-sm">${player.chips.toLocaleString()}</span>
+        </div>
+        {isThinking && !player.hasFolded && (
+          <div className="mt-1 flex items-center justify-center gap-1 text-[11px] text-white/80">
+            <span className="inline-block w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce [animation-delay:0ms]"></span>
+            <span className="inline-block w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce [animation-delay:120ms]"></span>
+            <span className="inline-block w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce [animation-delay:240ms]"></span>
+          </div>
+        )}
+        {/* Chip stack hover removed as requested */}
+        {/* Cards - beneath header; show 1 card for dealer draw, 2 for regular play */}
+        <div className={`flex ${isHero ? 'gap-0.5' : 'gap-0'} mt-1`}>
+          {cards.map((c, i) => {
+            const overlap = isHero ? -8 : -12; // bots overlap a bit more to look tighter
+            return (
+            <div key={i} className="relative" style={{ transform: `translateX(${i * overlap}px)` }}>
+              <PokerCard 
+                suit={c.suit} 
+                rank={c.rank} 
+                isFaceDown={faceDown} 
+                scale={isHero ? 0.75 : (shouldShowCards ? 0.65 : 0.5)}
+                className={`${isHero || shouldShowCards ? '[--card-rank-size:1.05rem] [--card-suit-size:1.05rem]' : '[--card-rank-size:0.9rem] [--card-suit-size:0.9rem]'} 
+                  hover:z-10 hover:transform hover:translate-y-[-5px] transition-all duration-200`}
+              />
+            </div>
+          );})}
+        </div>
       </div>
     </div>
   );

@@ -20,5 +20,15 @@ export const CHIP_LABELS: Record<number, string> = {
   1000: 'Yellow',
 };
 
+// Spanish labels for chip colors
+export const CHIP_LABELS_ES: Record<number, string> = {
+  1: 'Blanca',
+  5: 'Roja',
+  25: 'Verde',
+  100: 'Negra',
+  500: 'Morada',
+  1000: 'Amarilla',
+};
+
 
 

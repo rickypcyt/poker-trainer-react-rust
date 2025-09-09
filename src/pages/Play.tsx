@@ -1,5 +1,5 @@
-// ActionLogEntry is used in the type definition below
-import { Toaster, toast } from 'react-hot-toast';
+import { CHIP_COLOR_CLASS, CHIP_DENOMS } from '../constants/chips';
+import type { Difficulty, Player, TableState } from '../types/table';
 import {
   createInitialTable,
   getHeroIndex,
@@ -7,21 +7,24 @@ import {
   heroFold,
   heroRaiseTo,
   maxBet,
+  performBotActionNow,
   performDealerDraw,
   prepareNewHandWithoutDealing,
   revealDealerDraw,
   startNewHand
 } from '../lib/tableEngine';
 
-import ChipLegend from '../components/ChipLegend';
-import LogsModal from '../components/LogsModal';
+import ChipStack from '../components/ChipStack';
 import Dealer from '../components/Dealer';
+import LogsModal from '../components/LogsModal';
 import Navbar from '../components/Navbar';
 import PlayerSeat from '../components/PlayerSeat';
 import PokerCard from '../components/PokerCard';
 import React from 'react';
 import { createChipStack } from '../utils/chipUtils';
-import type { Player, TableState } from '../types/table';
+// ActionLogEntry is used in the type definition below
+import { toast } from 'react-toastify';
+import { useNavigate } from 'react-router-dom';
 
 // Game configuration
 const GAME_CONFIG = {
@@ -30,17 +33,41 @@ const GAME_CONFIG = {
   numBots: 2, // 2 bots + 1 human = 3 players total
   startingChips: 5000, // $5,000 starting stack
   chipDenominations: [1, 5, 25, 100, 500, 1000] as const,
+  defaultTimeLimitSeconds: 15 as const,
 };
 
 const Play: React.FC = () => {
+  const navigate = useNavigate();
   const [isLogsOpen, setIsLogsOpen] = React.useState(false);
-  const [lastToastTime, setLastToastTime] = React.useState<number>(0);
+  const [seatActions, setSeatActions] = React.useState<Record<string, string>>({});
+  const chipAnchorsRef = React.useRef<Record<string, HTMLDivElement | null>>({});
+  const potRef = React.useRef<HTMLDivElement | null>(null);
+  const dealerRef = React.useRef<HTMLDivElement | null>(null);
+  const [flyingChips, setFlyingChips] = React.useState<Array<{ id: string; colorClass: string; left: number; top: number; toLeft: number; toTop: number }>>([]);
+  const prevPotRef = React.useRef<number>(0);
   // Try to hydrate from localStorage
   const savedTable = typeof window !== 'undefined' ? localStorage.getItem('poker_trainer_table') : null;
+  const [showSetup, setShowSetup] = React.useState<boolean>(() => !savedTable);
 
   const [table, setTable] = React.useState(() => {
+    // Read config overrides (numBots, startingChips)
+    let cfgNumBots = GAME_CONFIG.numBots;
+    let cfgStartingChips = GAME_CONFIG.startingChips;
+    let cfgDifficulty: Difficulty = 'Medium';
+    try {
+      if (typeof window !== 'undefined') {
+        const cfg = localStorage.getItem('poker_trainer_config');
+        if (cfg) {
+          const parsed = JSON.parse(cfg);
+          if (typeof parsed.numBots === 'number') cfgNumBots = parsed.numBots;
+          if (typeof parsed.startingChips === 'number') cfgStartingChips = parsed.startingChips;
+          if (typeof parsed.difficulty === 'string') cfgDifficulty = parsed.difficulty as Difficulty;
+        }
+      }
+    } catch { /* ignore malformed config */ }
+
     // Create initial chip stack for each player
-    const initialChipStack = createChipStack(GAME_CONFIG.startingChips);
+    const initialChipStack = createChipStack(cfgStartingChips);
     
     if (savedTable) {
       try {
@@ -54,11 +81,91 @@ const Play: React.FC = () => {
     return createInitialTable({
       smallBlind: GAME_CONFIG.smallBlind,
       bigBlind: GAME_CONFIG.bigBlind,
-      numBots: GAME_CONFIG.numBots,
-      startingChips: GAME_CONFIG.startingChips,
-      initialChipStack
+      numBots: cfgNumBots,
+      startingChips: cfgStartingChips,
+      initialChipStack,
+      difficulty: cfgDifficulty
     });
   });
+
+  // Pending setup values (used only when showSetup is true)
+  const [pendingNumBots, setPendingNumBots] = React.useState<number>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const cfg = localStorage.getItem('poker_trainer_config');
+        if (cfg) {
+          const parsed = JSON.parse(cfg);
+          if (typeof parsed.numBots === 'number') return parsed.numBots;
+        }
+      }
+    } catch { /* ignore */ }
+    return GAME_CONFIG.numBots;
+  });
+  const presetBuyins = [1000, 5000, 10000] as const;
+  // Difficulty in setup
+  const [pendingDifficulty, setPendingDifficulty] = React.useState<Difficulty>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const cfg = localStorage.getItem('poker_trainer_config');
+        if (cfg) {
+          const parsed = JSON.parse(cfg);
+          if (typeof parsed.difficulty === 'string') return parsed.difficulty as Difficulty;
+        }
+      }
+    } catch { /* ignore */ }
+    return 'Medium';
+  });
+  const [pendingBuyIn, setPendingBuyIn] = React.useState<number>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const cfg = localStorage.getItem('poker_trainer_config');
+        if (cfg) {
+          const parsed = JSON.parse(cfg);
+          if (typeof parsed.startingChips === 'number') return parsed.startingChips;
+        }
+      }
+    } catch { /* ignore */ }
+    return GAME_CONFIG.startingChips;
+  });
+  const timeLimitOptions = [10, 15, 20, 30, 45, 60] as const;
+  const [pendingTimeLimit, setPendingTimeLimit] = React.useState<number>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const cfg = localStorage.getItem('poker_trainer_config');
+        if (cfg) {
+          const parsed = JSON.parse(cfg);
+          if (typeof parsed.timeLimitSeconds === 'number') return parsed.timeLimitSeconds;
+        }
+      }
+    } catch { /* ignore */ }
+    return GAME_CONFIG.defaultTimeLimitSeconds;
+  });
+  // Active time limit used by the session for bot thinking
+  const [timeLimitSeconds, setTimeLimitSeconds] = React.useState<number>(pendingTimeLimit);
+
+  const startGameFromSetup = () => {
+    // Persist chosen config
+    try {
+      localStorage.setItem('poker_trainer_config', JSON.stringify({ numBots: pendingNumBots, startingChips: pendingBuyIn, timeLimitSeconds: pendingTimeLimit, difficulty: pendingDifficulty }));
+      localStorage.removeItem('poker_trainer_table');
+    } catch { /* ignore */ }
+    // Create a fresh table using chosen values
+    const initialChipStackLocal = createChipStack(pendingBuyIn);
+    const newTable = createInitialTable({
+      smallBlind: GAME_CONFIG.smallBlind,
+      bigBlind: GAME_CONFIG.bigBlind,
+      numBots: pendingNumBots,
+      startingChips: pendingBuyIn,
+      initialChipStack: initialChipStackLocal,
+      difficulty: pendingDifficulty,
+    });
+    // Perform dealer draw at start
+    const withDraw = performDealerDraw(newTable);
+    setReveal(false);
+    setTable(withDraw);
+    setShowSetup(false);
+    setTimeLimitSeconds(pendingTimeLimit);
+  };
   const [reveal, setReveal] = React.useState(false);
   const [isDealing] = React.useState(false);
 
@@ -79,25 +186,141 @@ const Play: React.FC = () => {
     }
   }, [table]);
 
-  // Show toast for important events
+  // Show toast for EVERY new log entry; use toastShown flag to avoid duplicates
   React.useEffect(() => {
-    // Only show toast for new important events when logs modal is closed
-    if (!isLogsOpen && table.actionLog.length > 0) {
-      const lastEntry = table.actionLog[table.actionLog.length - 1];
-      const isImportant = lastEntry.message.includes('wins') || 
-                         lastEntry.message.includes('Showdown') ||
-                         lastEntry.message.includes('New hand');
-      
-      if (isImportant && new Date(lastEntry.time).getTime() > lastToastTime) {
-        toast(lastEntry.message, {
-          duration: 3000,
-          position: 'bottom-right',
-          className: 'bg-neutral-800 text-white px-4 py-2 rounded-lg shadow-lg',
-        });
-        setLastToastTime(new Date().getTime());
+    if (table.actionLog.length === 0) return;
+    const lastIndex = table.actionLog.length - 1;
+    const lastEntry = table.actionLog[lastIndex];
+
+    if (!lastEntry.toastShown) {
+      toast(lastEntry.message, {
+        autoClose: 3000,
+        position: 'top-center',
+        theme: 'dark',
+        hideProgressBar: true,
+        closeOnClick: true,
+        pauseOnHover: false,
+      });
+      // Mark the entry as shown to prevent duplicate toasts
+      setTable((prev: TableState) => {
+        const idx = prev.actionLog.length - 1;
+        if (idx < 0) return prev;
+        const updated = prev.actionLog.map((e, i) =>
+          i === idx ? { ...e, toastShown: true } : e
+        );
+        return { ...prev, actionLog: updated } as TableState;
+      });
+    }
+  }, [table.actionLog]);
+
+  // Track hero wins ("Play" wins) in localStorage when an actionLog says You wins the pot
+  React.useEffect(() => {
+    if (table.actionLog.length === 0) return;
+    const last = table.actionLog[table.actionLog.length - 1];
+    // Expect format "You wins the pot $<amount>" or "You wins the pot $<amount> (reason)"
+    if (/^You\s+wins the pot\s+\$/.test(last.message)) {
+      try {
+        const key = 'poker_trainer_play_wins';
+        const prev = Number(localStorage.getItem(key) || '0') || 0;
+        localStorage.setItem(key, String(prev + 1));
+      } catch { /* ignore */ }
+    }
+  }, [table.actionLog]);
+
+  // Mini action bubbles near players: derive from last actionLog
+  React.useEffect(() => {
+    if (table.actionLog.length === 0) return;
+    const last = table.actionLog[table.actionLog.length - 1];
+    const msg = last.message;
+    // Expected formats: "<Name> raised to X", "<Name> called Y", "<Name> checked", "<Name> folded"
+    const match = msg.match(/^(.*?)\s+(raised to|called|checked|folded)(?:\s+([0-9]+))?/i);
+    if (!match) return;
+    const [, name, action, amount] = match;
+    const player = table.players.find((p: Player) => (p.isHero ? 'You' : p.name) === name);
+    if (!player) return;
+    let text = '';
+    if (action.toLowerCase().startsWith('raised')) text = amount ? `Raise to ${amount}` : 'Raise';
+    else if (action.toLowerCase() === 'called') text = amount ? `Call ${amount}` : 'Call';
+    else if (action.toLowerCase() === 'checked') text = 'Check';
+    else if (action.toLowerCase() === 'folded') text = 'Fold';
+
+    if (!text) return;
+    setSeatActions(prev => ({ ...prev, [player.id]: text }));
+    const tid = setTimeout(() => {
+      setSeatActions(prev => {
+        const cp = { ...prev };
+        delete cp[player.id];
+        return cp;
+      });
+    }, 1800);
+    return () => clearTimeout(tid);
+  }, [table.actionLog, table.players]);
+
+  // Bot thinking: when a bot is pending, wait then perform action
+  React.useEffect(() => {
+    if (table.botPendingIndex == null) return;
+    // Respect time limit for bot thinking; randomize between 60%-100% of the limit, capped at the limit
+    const diff: Difficulty = (table.difficulty as Difficulty) ?? 'Medium';
+    const mult = diff === 'Easy' ? 0.6 : diff === 'Hard' ? 1.2 : 1.0;
+    const maxMs = Math.max(700, Math.floor(timeLimitSeconds * 1000 * mult));
+    const delay = Math.min(maxMs, Math.floor(maxMs * (0.6 + Math.random() * 0.4)));
+    const t = setTimeout(() => {
+      setTable((prev: TableState) => performBotActionNow(prev));
+    }, delay);
+    return () => clearTimeout(t);
+  }, [table.botPendingIndex, timeLimitSeconds, table.difficulty]);
+
+  // Animate chips to pot when pot increases
+  React.useEffect(() => {
+    const prevPot = prevPotRef.current;
+    if (table.pot > prevPot) {
+      const last = table.actionLog[table.actionLog.length - 1];
+      // Identify the actor: raised or called
+      let actorName: string | null = null;
+      if (last) {
+        const m = last.message.match(/^(.*?)\s+(raised to|called)/i);
+        if (m) actorName = m[1];
+      }
+      const actor = table.players.find((p: Player) => (p.isHero ? 'You' : p.name) === actorName) || null;
+      const sourceEl = actor ? chipAnchorsRef.current[actor.id] : null;
+      // Animate towards the Dealer (requested):
+      const targetEl = dealerRef.current;
+      if (sourceEl && targetEl) {
+        const s = sourceEl.getBoundingClientRect();
+        const t = targetEl.getBoundingClientRect();
+        // Choose a color based on a denom close to delta
+        const delta = table.pot - prevPot;
+        let denom: number = CHIP_DENOMS[0] as number;
+        for (const d of [...CHIP_DENOMS].sort((a, b) => Number(b) - Number(a))) {
+          if (delta >= d) { denom = d; break; }
+        }
+        const colorClass = CHIP_COLOR_CLASS[denom];
+        const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const chip = { id, colorClass, left: s.left + s.width / 2, top: s.top, toLeft: t.left + t.width / 2, toTop: t.top + t.height / 2 };
+        setFlyingChips((arr) => [...arr, chip]);
+        // Remove after animation ends
+        setTimeout(() => {
+          setFlyingChips((arr) => arr.filter((c) => c.id !== id));
+        }, 800);
       }
     }
-  }, [table.actionLog, isLogsOpen, lastToastTime]);
+    prevPotRef.current = table.pot;
+  }, [table.pot, table.actionLog, table.players]);
+
+  // Use exact pot breakdown tracked by the engine
+  const potChipStack: Record<number, number> = React.useMemo(() => {
+    return table.potStack || {} as Record<number, number>;
+  }, [table.potStack]);
+
+  // After revealing highest card, briefly show the cards and toast, then auto-start the hand
+  React.useEffect(() => {
+    if (table.dealerDrawInProgress && table.dealerDrawRevealed) {
+      const t = setTimeout(() => {
+        handleNewHand();
+      }, 1200); // small pause to let users see the reveal and toast
+      return () => clearTimeout(t);
+    }
+  }, [table.dealerDrawInProgress, table.dealerDrawRevealed]);
 
   const handleNewHand = () => {
     setReveal(false);
@@ -114,7 +337,7 @@ const Play: React.FC = () => {
         ...newTable,
         actionLog: [...newTable.actionLog, ...newLog]
       };
-      
+
       // Start the hand with the new table state
       const handStarted = startNewHand(updatedTable);
       
@@ -129,8 +352,32 @@ const Play: React.FC = () => {
     });
   };
 
+  const handleEndGame = () => {
+    setTable((prev: TableState) => ({
+      ...prev,
+      actionLog: [
+        ...prev.actionLog,
+        {
+          message: 'Game ended — unfinished',
+          time: new Date().toLocaleTimeString(),
+          isImportant: true,
+          status: 'unfinished'
+        }
+      ]
+    }));
+    try {
+      localStorage.removeItem('poker_trainer_table');
+    } catch { /* ignore */ }
+    navigate('/');
+  };
+
   const handlePlayerAction = (action: 'Fold' | 'Call' | 'Raise') => {
-    setTable(prev => {
+    setTable((prev: TableState) => {
+      // Do nothing if it's not the hero's turn
+      const heroIdxGuard = getHeroIndex(prev);
+      if (prev.currentPlayerIndex !== heroIdxGuard || prev.stage === 'Showdown') {
+        return prev;
+      }
       // Handle the player's action based on the button clicked
       if (action === 'Fold') {
         const newState = heroFold(prev);
@@ -169,18 +416,24 @@ const Play: React.FC = () => {
   const { players, dealerIndex, smallBlindIndex, bigBlindIndex } = table;
   const bots = players.filter((p: Player) => !p.isHero);
   const botPositions = (() => {
-    // Distribute bots: for 3 -> two left, one right; for 4 -> two left, two right
+    // Place bots around table corners/edges to avoid vertical stacking
+    // Hero sits bottom center; corners: top-left, top-right, bottom-left, bottom-right
     switch (bots.length) {
       case 1:
-        return ['right-2 top-1/2 -translate-y-1/2'];
+        // Single bot at top-right corner
+        return ['right-6 top-24'];
       case 2:
-        return ['left-2 top-1/2 -translate-y-1/2', 'right-2 top-1/2 -translate-y-1/2'];
+        // Two bots: top-left and top-right
+        return ['left-6 top-24', 'right-6 top-24'];
       case 3:
-        return ['left-2 bottom-24', 'left-2 top-1/2 -translate-y-1/2', 'right-2 top-1/2 -translate-y-1/2'];
+        // Three bots: top-left, top-right, bottom-left
+        return ['left-6 top-24', 'right-6 top-24', 'left-6 bottom-40'];
       case 4:
-        return ['left-2 bottom-24', 'left-2 top-1/2 -translate-y-1/2', 'right-2 top-1/2 -translate-y-1/2', 'right-2 bottom-24'];
+        // Four bots: all corners
+        return ['left-6 top-24', 'right-6 top-24', 'left-6 bottom-40', 'right-6 bottom-40'];
       default:
-        return ['left-2 bottom-24', 'left-2 top-1/2 -translate-y-1/2', 'right-2 top-1/2 -translate-y-1/2', 'right-2 bottom-24', 'left-1/2 top-2 -translate-x-1/2'];
+        // Fallback for 5+: distribute adding mid-top center then mid-right, etc.
+        return ['left-6 top-24', 'right-6 top-24', 'left-6 bottom-40', 'right-6 bottom-40', 'left-1/2 top-20 -translate-x-1/2'];
     }
   })();
 
@@ -194,11 +447,104 @@ const Play: React.FC = () => {
         onShuffle={handleNewHand} 
         actionLabel="New Hand" 
         onOpenLogs={() => setIsLogsOpen(true)}
+        onEndGame={handleEndGame}
       />
+
+      {/* Setup overlay when starting new game */}
+      {showSetup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+          <div className="relative z-10 w-[92vw] max-w-md bg-neutral-900 text-white rounded-2xl border border-white/10 shadow-2xl p-6">
+            <h2 className="text-xl font-bold mb-4 text-center">Game Settings</h2>
+            <div className="space-y-5">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label htmlFor="bots" className="text-white/80 text-sm">Number of Bots</label>
+                  <span className="text-white font-semibold">{pendingNumBots}</span>
+                </div>
+                <input
+                  id="bots"
+                  type="range"
+                  min={1}
+                  max={5}
+                  step={1}
+                  value={pendingNumBots}
+                  onChange={(e) => setPendingNumBots(parseInt(e.target.value))}
+                  className="w-full accent-yellow-400"
+                />
+                <div className="flex justify-between text-white/50 text-xs mt-1">
+                  {[1,2,3,4,5].map(n => (<span key={n}>{n}</span>))}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-white/80 text-sm mb-2">Buy-in</div>
+                <div className="flex gap-2 justify-center">
+                  {presetBuyins.map(v => (
+                    <button
+                      key={v}
+                      onClick={() => setPendingBuyIn(v)}
+                      className={`px-3 py-1.5 rounded-lg border transition-colors ${pendingBuyIn === v ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'}`}
+                    >
+                      {v >= 1000 ? `${(v/1000).toFixed(v%1000?1:0)}K` : `$${v}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Difficulty selector */}
+              <div>
+                <div className="text-white/80 text-sm mb-2">Difficulty</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { key: 'Easy', label: '🟢 Easy' },
+                    { key: 'Medium', label: '🟡 Medium' },
+                    { key: 'Hard', label: '🔴 Hard' },
+                  ] as Array<{ key: Difficulty; label: string }>).map(opt => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setPendingDifficulty(opt.key)}
+                      className={`px-3 py-2 rounded-lg border text-sm transition-colors ${pendingDifficulty === opt.key ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'}`}
+                    >
+                      <div className="leading-tight font-semibold">{opt.label}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Time limit selector */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-white/80 text-sm">Time Limit (AI)</label>
+                  <span className="text-white font-semibold">{pendingTimeLimit}s</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {timeLimitOptions.map((sec) => (
+                    <button
+                      key={sec}
+                      onClick={() => setPendingTimeLimit(sec)}
+                      className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${pendingTimeLimit === sec ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'}`}
+                    >
+                      {sec}s
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Start at bottom */}
+              <div className="pt-3">
+                <button
+                  onClick={startGameFromSetup}
+                  className="w-full bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-400/50 text-yellow-100 px-4 py-2 rounded-xl font-semibold transition-all duration-300 hover:scale-[1.02]"
+                >
+                  Start Game
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       
-      {/* Toast notifications */}
-      <Toaster />
-      
+      {/* Toast notifications moved to App root */}
+
       {/* Logs modal */}
       <LogsModal 
         isOpen={isLogsOpen}
@@ -208,9 +554,15 @@ const Play: React.FC = () => {
       />
 
       <div className="relative w-full h-[calc(100vh-6rem)] flex items-center justify-center px-2 py-2 overflow-hidden">
-        {/* Chip legend bottom left */}
-        <div className="absolute left-2 bottom-2">
-          <ChipLegend />
+        {/* Chip legend removed; hover details are shown on each ChipStack */}
+        {/* Simple chip legend row for reference (colors and labels) */}
+        <div className="absolute left-2 top-2 flex items-center gap-2 bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-white/80">
+          {CHIP_DENOMS.map((d) => (
+            <div key={`legend-${d}`} className="flex items-center gap-1">
+              <span className={`w-3 h-3 rounded-full border border-white/50 ${CHIP_COLOR_CLASS[d]}`} />
+              <span>${d}</span>
+            </div>
+          ))}
         </div>
 
         {/* Buttons card right */}
@@ -228,35 +580,32 @@ const Play: React.FC = () => {
             </div>
           ) : table.dealerDrawInProgress && table.dealerDrawRevealed ? (
             <div className="flex justify-center">
-              <button
-                className="bg-green-600 hover:bg-green-500 text-white font-semibold px-6 py-2 rounded-md transition-colors shadow-md"
-                onClick={handleNewHand}
-              >
-                Start Hand
-              </button>
+              <div className="text-green-300 font-semibold px-4 py-2 rounded-md bg-green-600/20 border border-green-400/40">
+                Starting hand...
+              </div>
             </div>
           ) : (
             <div className="flex flex-col gap-2">
               <div className="flex gap-2">
                 <button 
                   className={`font-semibold px-4 py-2 rounded-md flex-1 transition-colors shadow-md ${
-                    table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown'
+                    table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
                       ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                       : 'bg-red-700 hover:bg-red-600 text-white'
                   }`}
                   onClick={() => handlePlayerAction('Fold')}
-                  disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown'}
+                  disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
                 >
                   Fold
                 </button>
                 <button 
                   className={`font-semibold px-4 py-2 rounded-md flex-1 transition-colors shadow-md ${
-                    table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown'
+                    table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
                       ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                       : 'bg-blue-700 hover:bg-blue-600 text-white'
                   }`}
                   onClick={() => handlePlayerAction('Call')}
-                  disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown'}
+                  disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
                 >
                   {(() => {
                     const hero = table.players[getHeroIndex(table)];
@@ -270,12 +619,12 @@ const Play: React.FC = () => {
               <div className="flex">
                 <button 
                   className={`font-semibold px-6 py-2 rounded-md w-full transition-colors shadow-md ${
-                    table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown'
+                    table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
                       ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                       : 'bg-yellow-600 hover:bg-yellow-500 text-white'
                   }`}
                   onClick={() => handlePlayerAction('Raise')}
-                  disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown'}
+                  disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
                 >
                   {(() => {
                     const hero = table.players[getHeroIndex(table)];
@@ -299,7 +648,7 @@ const Play: React.FC = () => {
         {/* Poker table - larger and perfectly centered */}
         <div className="relative w-[90vw] max-w-[1200px] h-[65vh] min-h-[500px]">
           {/* Dealer position - higher on the table */}
-          <div className="absolute left-1/2 -translate-x-1/2 -top-12 z-10">
+          <div ref={dealerRef} className="absolute left-1/2 -translate-x-1/2 -top-12 z-10">
             <Dealer isDealing={isDealing} />
           </div>
           {/* Table mat with clean design */}
@@ -315,42 +664,45 @@ const Play: React.FC = () => {
             </div>
             
             {/* Main table area */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              {/* Pot display - centered and more compact */}
-              <div className="bg-black/80 text-white text-xl md:text-2xl font-bold px-6 py-2 rounded-full border border-amber-100/20 shadow-md z-10 mb-6">
-                <span className="text-amber-100 font-mono">POT:</span> <span className="text-2xl md:text-3xl text-yellow-300 font-mono">${table.pot.toLocaleString()}</span>
+            <div className="absolute inset-0">  
+              {/* Pot display - absolute so it doesn't affect vertical centering of the board */}
+              <div ref={potRef} className="absolute left-1/2 -translate-x-1/2 top-10 md:top-12 bg-black/80 text-white text-base md:text-2xl font-bold px-4 md:px-6 py-1.5 md:py-2 rounded-full border border-amber-100/20 shadow-md z-10">
+                <span className="text-amber-100 font-mono">POT:</span> <span className="text-xl md:text-3xl text-yellow-300 font-mono">${table.pot.toLocaleString()}</span>
               </div>
-              
-              {/* Card area - adjusted for better spacing */}
-              <div className="relative w-full h-[60%] flex items-center justify-center px-4">
-                {/* Card positions - evenly spaced */}
-                <div className="flex justify-center items-center w-full max-w-4xl mx-auto">
-                  <div className="grid grid-cols-5 gap-2 w-full px-4">
-                    {[...Array(5)].map((_, i) => (
-                      <div 
-                        key={i} 
-                        className={`relative w-full aspect-[0.7] rounded-lg ${
-                          i < table.board.length 
-                            ? 'bg-white shadow-lg transform hover:scale-105 hover:z-10 transition-transform duration-200' 
-                            : 'bg-white/5 border-2 border-dashed border-white/20'
-                        } flex items-center justify-center`}
-                      >
-                        {i < table.board.length ? (
-                          <PokerCard 
-                            suit={table.board[i].suit} 
-                            rank={table.board[i].rank} 
-                            scale={1.3}
-                            className="w-full h-full"
-                          />
-                        ) : (
-                          <span className="text-white/30 text-lg font-bold">{i+1}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+
+              {/* Pot chip stack visualization */}
+              <div className="absolute left-1/2 -translate-x-1/2 top-[96px] md:top-[120px] z-10">
+                <div className="scale-[0.98]">
+                  <ChipStack stack={potChipStack} showCounts countFormat="prefixX" size="md" columns={2} />
                 </div>
               </div>
+
+              {/* Board area - perfectly centered in Y axis */}
+              <div className="absolute inset-0 flex items-center justify-center px-2 sm:px-4">
+                <div className="flex items-center justify-center gap-2 sm:gap-3 md:gap-4">
+                  {[...Array(5)].map((_, i) => (
+                    <div
+                      key={i}
+                      className={`relative aspect-[0.7] rounded-lg ${
+                        i < table.board.length
+                          ? 'bg-white shadow-lg hover:scale-[1.02] hover:z-10 transition-transform duration-200'
+                          : 'bg-white/5 border-2 border-dashed border-white/20'
+                      } flex items-center justify-center w-[clamp(56px,8vw,120px)]`}
+                    >
+                      {i < table.board.length ? (
+                        <PokerCard
+                          suit={table.board[i].suit}
+                          rank={table.board[i].rank}
+                          className="w-full h-full"
+                        />
+                      ) : (
+                        <span className="text-white/30 text-sm sm:text-base md:text-lg font-bold">{i + 1}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
+            </div>
             </div>
           </div>
           
@@ -370,6 +722,9 @@ const Play: React.FC = () => {
               isActive={players.indexOf(p) === table.currentPlayerIndex}
               position="bottom"
               gameStage={table.stage}
+              isThinking={table.botPendingIndex === players.indexOf(p)}
+              actionText={seatActions[p.id]}
+              chipAnchorRef={(el) => { chipAnchorsRef.current[p.id] = el; }}
             />
           </div>
         ))}
@@ -396,6 +751,9 @@ const Play: React.FC = () => {
                 isActive={idx === table.currentPlayerIndex}
                 position={position}
                 gameStage={table.stage}
+                isThinking={table.botPendingIndex === idx}
+                actionText={seatActions[p.id]}
+                chipAnchorRef={(el) => { chipAnchorsRef.current[p.id] = el; }}
               />
             </div>
           );
@@ -404,6 +762,14 @@ const Play: React.FC = () => {
         
         
       </div>
+      {/* Flying chips overlay (fixed to viewport for smooth animation) */}
+      {flyingChips.map((c) => (
+        <div
+          key={c.id}
+          className={`pointer-events-none fixed z-[60] w-5 h-5 rounded-full border-2 border-white/70 shadow ${c.colorClass}`}
+          style={{ left: c.left, top: c.top, transition: 'transform 0.75s ease-out', transform: `translate(${c.toLeft - c.left}px, ${c.toTop - c.top}px)` }}
+        />)
+      )}
     </div>
   );
 };

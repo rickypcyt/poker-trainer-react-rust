@@ -5,6 +5,9 @@ export type SeatRole = 'Dealer' | 'SmallBlind' | 'BigBlind' | 'None';
 export type ChipValue = 1 | 5 | 25 | 100 | 500 | 1000;
 export type ChipStack = Record<number, number>; // key is chip value (e.g., 25 -> count)
 
+// Game difficulty levels for bot behavior
+export type Difficulty = 'Easy' | 'Medium' | 'Hard';
+
 export interface Player {
   id: string;
   name: string;
@@ -29,6 +32,8 @@ export interface TableState {
   bigBlindIndex: number;
   currentPlayerIndex: number;
   pot: number;
+  // Exact chip denomination breakdown in the pot
+  potStack: ChipStack;
   smallBlind: number;
   bigBlind: number;
   handNumber: number;
@@ -50,6 +55,10 @@ export interface TableState {
   };
   // Game stage
   stage: 'DealerDraw' | 'PreFlop' | 'Flop' | 'Turn' | 'River' | 'Showdown';
+  // Bot thinking scheduling
+  botPendingIndex?: number | null;
+  // Difficulty level that influences bot decisions
+  difficulty?: Difficulty;
 }
 
 export interface DealConfig {
@@ -58,12 +67,14 @@ export interface DealConfig {
   numBots: number;
   startingChips: number;
   initialChipStack?: ChipStack;
+  difficulty?: Difficulty;
 }
 
 export interface ActionLogEntry {
   message: string;
   time: string;
   isImportant?: boolean;
+  status?: 'unfinished' | 'finished' | 'info' | 'warning' | 'error';
   winner?: string;
   winningCard?: string;
   toastShown?: boolean;

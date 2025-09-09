@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import React from 'react';
 
 const MainMenu: React.FC = () => {
+  
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-800 via-green-700 to-green-900 flex items-center justify-center px-4">
       {/* Background Pattern */}
@@ -52,6 +53,7 @@ const MainMenu: React.FC = () => {
                 </div>
               </div>
             </Link>
+
 
             {/* Pre Flop Trainer (renamed from Solo Training) - Second */}
             <Link
