@@ -242,3 +242,123 @@ class PokerService {
 
 export const pokerService = new PokerService();
 export default pokerService;
+
+// --- Multi-player table (server-side) API ---
+// These types mirror the desired Rust backend for multi-seat tables (1 hero + up to 10 bots)
+export type TableStage = 'DealerDraw' | 'PreFlop' | 'Flop' | 'Turn' | 'River' | 'Showdown';
+
+export interface TablePlayer {
+  id: string;
+  name: string;
+  is_bot: boolean;
+  is_hero: boolean;
+  chips: number;
+  bet: number;
+  hole_cards: Card[];
+  has_folded: boolean;
+  seat_index: number;
+}
+
+export interface TableLogEntry {
+  message: string;
+  time: string;
+  kind?: LogKind;
+  stage?: TableStage;
+}
+
+export interface PotStackBreakdown {
+  [denom: number]: number;
+}
+
+export interface TableConfigRequest {
+  small_blind: number;
+  big_blind: number;
+  num_bots: number; // 0..10
+  starting_chips: number;
+  difficulty?: 'Easy' | 'Medium' | 'Hard';
+}
+
+export interface TableStateServer {
+  table_id: string;
+  deck: Card[];
+  board: Card[];
+  burned: Card[];
+  players: TablePlayer[];
+  dealer_index: number;
+  small_blind_index: number;
+  big_blind_index: number;
+  current_player_index: number;
+  pot: number;
+  pot_stack: PotStackBreakdown;
+  small_blind: number;
+  big_blind: number;
+  hand_number: number;
+  current_bet: number;
+  stage: TableStage;
+  logs: TableLogEntry[];
+  bot_pending_index?: number | null;
+  difficulty?: 'Easy' | 'Medium' | 'Hard';
+  // Optional dealer draw helpers
+  dealer_draw_cards?: Record<string, Card | null>;
+  dealer_draw_revealed?: boolean;
+  dealer_draw_in_progress?: boolean;
+}
+
+export type TableAction = 'Fold' | 'Call' | 'Raise' | 'Check' | 'AllIn';
+
+export interface TablePlayerActionRequest {
+  player_id: string; // hero id
+  action: TableAction;
+  raise_to?: number; // absolute amount to raise to (bet size)
+}
+
+export const tableApi = {
+  baseUrl: (apiBase?: string) => apiBase ?? (import.meta.env.VITE_BACKEND_URL as string) ?? 'http://127.0.0.1:3000',
+
+  async createTable(config: TableConfigRequest, apiBase?: string): Promise<TableStateServer> {
+    const base = tableApi.baseUrl(apiBase);
+    const resp = await fetch(`${base}/api/table`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!resp.ok) throw new Error(`Failed to create table: ${resp.status}`);
+    return await resp.json();
+  },
+
+  async getTableState(tableId: string, apiBase?: string): Promise<TableStateServer> {
+    const base = tableApi.baseUrl(apiBase);
+    const resp = await fetch(`${base}/api/table/${tableId}`);
+    if (!resp.ok) throw new Error(`Failed to get table state: ${resp.status}`);
+    return await resp.json();
+  },
+
+  async postAction(tableId: string, req: TablePlayerActionRequest, apiBase?: string): Promise<TableStateServer> {
+    const base = tableApi.baseUrl(apiBase);
+    const resp = await fetch(`${base}/api/table/${tableId}/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (!resp.ok) throw new Error(`Failed to post action: ${resp.status}`);
+    return await resp.json();
+  },
+
+  async nextStreet(tableId: string, apiBase?: string): Promise<TableStateServer> {
+    const base = tableApi.baseUrl(apiBase);
+    const resp = await fetch(`${base}/api/table/${tableId}/next_street`, {
+      method: 'POST',
+    });
+    if (!resp.ok) throw new Error(`Failed to advance street: ${resp.status}`);
+    return await resp.json();
+  },
+
+  async resetTable(tableId: string, apiBase?: string): Promise<TableStateServer> {
+    const base = tableApi.baseUrl(apiBase);
+    const resp = await fetch(`${base}/api/table/${tableId}/reset`, {
+      method: 'POST',
+    });
+    if (!resp.ok) throw new Error(`Failed to reset table: ${resp.status}`);
+    return await resp.json();
+  },
+};

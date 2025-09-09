@@ -1,18 +1,7 @@
 import { CHIP_COLOR_CLASS, CHIP_DENOMS } from '../constants/chips';
 import type { Difficulty, Player, TableState } from '../types/table';
-import {
-  createInitialTable,
-  getHeroIndex,
-  heroCall,
-  heroFold,
-  heroRaiseTo,
-  maxBet,
-  performBotActionNow,
-  performDealerDraw,
-  prepareNewHandWithoutDealing,
-  revealDealerDraw,
-  startNewHand
-} from '../lib/tableEngine';
+import { tableApi } from '../lib/pokerService';
+import { adaptServerToClient, uiDealConfigToServer } from '../lib/stateAdapter';
 
 import ChipStack from '../components/ChipStack';
 import Dealer from '../components/Dealer';
@@ -21,7 +10,7 @@ import Navbar from '../components/Navbar';
 import PlayerSeat from '../components/PlayerSeat';
 import PokerCard from '../components/PokerCard';
 import React from 'react';
-import { createChipStack } from '../utils/chipUtils';
+// import { createChipStack } from '../utils/chipUtils'; // no longer used with server-side engine
 // ActionLogEntry is used in the type definition below
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
@@ -54,25 +43,18 @@ const Play: React.FC = () => {
   const [showSetup, setShowSetup] = React.useState<boolean>(() => !savedTable);
 
   const [table, setTable] = React.useState(() => {
-    // Read config overrides (numBots, startingChips)
-    let cfgNumBots = GAME_CONFIG.numBots;
-    let cfgStartingChips = GAME_CONFIG.startingChips;
+    // Read config overrides (difficulty)
     let cfgDifficulty: Difficulty = 'Medium';
     try {
       if (typeof window !== 'undefined') {
         const cfg = localStorage.getItem('poker_trainer_config');
         if (cfg) {
           const parsed = JSON.parse(cfg);
-          if (typeof parsed.numBots === 'number') cfgNumBots = parsed.numBots;
-          if (typeof parsed.startingChips === 'number') cfgStartingChips = parsed.startingChips;
           if (typeof parsed.difficulty === 'string') cfgDifficulty = parsed.difficulty as Difficulty;
         }
       }
     } catch { /* ignore malformed config */ }
 
-    // Create initial chip stack for each player
-    const initialChipStack = createChipStack(cfgStartingChips);
-    
     if (savedTable) {
       try {
         const parsed = JSON.parse(savedTable);
@@ -82,15 +64,61 @@ const Play: React.FC = () => {
       }
     }
 
-    return createInitialTable({
+    // Initialize with a minimal placeholder until server responds
+    return {
+      deck: [],
+      board: [],
+      burned: [],
+      communityCards: [],
+      players: [],
+      dealerIndex: -1,
+      smallBlindIndex: -1,
+      bigBlindIndex: -1,
+      currentPlayerIndex: 0,
+      pot: 0,
+      potStack: {},
       smallBlind: GAME_CONFIG.smallBlind,
       bigBlind: GAME_CONFIG.bigBlind,
-      numBots: cfgNumBots,
-      startingChips: cfgStartingChips,
-      initialChipStack,
-      difficulty: cfgDifficulty
-    });
+      handNumber: 0,
+      currentBet: 0,
+      dealerDrawCards: {},
+      dealerDrawRevealed: false,
+      dealerDrawInProgress: false,
+      actionLog: [],
+      dealingState: {
+        isDealing: false,
+        currentDealIndex: 0,
+        dealOrder: [],
+        highlightHighCard: false,
+        highCardPlayerIndex: null,
+        stage: 'none'
+      },
+      stage: 'DealerDraw',
+      botPendingIndex: null,
+      difficulty: cfgDifficulty,
+    } as TableState;
   });
+  const [serverTableId, setServerTableId] = React.useState<string | null>(null);
+  // Local helpers replacing former tableEngine utilities, backed by server state
+  const getHeroIndex = React.useCallback((t: TableState) => {
+    return t.players.findIndex(p => p.isHero);
+  }, []);
+  const maxBet = React.useCallback((t: TableState) => {
+    // Prefer server-provided currentBet, fallback to max player bet
+    const byField = typeof t.currentBet === 'number' ? t.currentBet : 0;
+    const byPlayers = t.players.length ? Math.max(...t.players.map(p => p.bet || 0)) : 0;
+    return Math.max(byField, byPlayers);
+  }, []);
+  const revealDealerDraw = React.useCallback((prev: TableState) => {
+    // Ask server for updated state; return prev synchronously (setTable caller will keep prev),
+    // and then we update asynchronously when response arrives.
+    if (serverTableId) {
+      tableApi.getTableState(serverTableId)
+        .then(s => setTable(adaptServerToClient(s)))
+        .catch(e => console.error('Failed to sync dealer draw from server', e));
+    }
+    return prev;
+  }, [serverTableId]);
 
   // Pending setup values (used only when showSetup is true)
   const [pendingNumBots, setPendingNumBots] = React.useState<number>(() => {
@@ -157,31 +185,63 @@ const Play: React.FC = () => {
       localStorage.setItem('poker_trainer_config', JSON.stringify({ numBots: pendingNumBots, startingChips: pendingBuyIn, timeLimitSeconds: pendingTimeLimit, difficulty: pendingDifficulty }));
       localStorage.removeItem('poker_trainer_table');
     } catch { /* ignore */ }
-    // Create a fresh table using chosen values
-    const initialChipStackLocal = createChipStack(pendingBuyIn);
-    const newTable = createInitialTable({
-      smallBlind: GAME_CONFIG.smallBlind,
-      bigBlind: GAME_CONFIG.bigBlind,
-      numBots: pendingNumBots,
-      startingChips: pendingBuyIn,
-      initialChipStack: initialChipStackLocal,
-      difficulty: pendingDifficulty,
-    });
-    // Perform dealer draw at start
-    const withDraw = performDealerDraw(newTable);
-    setReveal(false);
-    setTable(withDraw);
-    setShowSetup(false);
-    setTimeLimitSeconds(pendingTimeLimit);
+    // Create a fresh server table using chosen values
+    (async () => {
+      try {
+        const serverCfg = uiDealConfigToServer({
+          smallBlind: GAME_CONFIG.smallBlind,
+          bigBlind: GAME_CONFIG.bigBlind,
+          numBots: pendingNumBots,
+          startingChips: pendingBuyIn,
+          difficulty: pendingDifficulty,
+        });
+        const s = await tableApi.createTable(serverCfg);
+        setServerTableId(s.table_id);
+        setReveal(false);
+        setTable(adaptServerToClient(s));
+        setShowSetup(false);
+        setTimeLimitSeconds(pendingTimeLimit);
+      } catch (e) {
+        console.error('Failed to create server table from setup', e);
+      }
+    })();
   };
   const [reveal, setReveal] = React.useState(false);
   const [isDealing] = React.useState(false);
 
-  // Perform dealer draw on mount only for brand new tables (no saved state)
+  // Create server table on mount if no saved state
   React.useEffect(() => {
-    if (!savedTable) {
-      setTable((prev: TableState) => performDealerDraw(prev));
-    }
+    const init = async () => {
+      try {
+        // Read config overrides
+        let cfgNumBots = GAME_CONFIG.numBots;
+        let cfgStartingChips = GAME_CONFIG.startingChips;
+        let cfgDifficulty: Difficulty = 'Medium';
+        try {
+          const cfg = typeof window !== 'undefined' ? localStorage.getItem('poker_trainer_config') : null;
+          if (cfg) {
+            const parsed = JSON.parse(cfg);
+            if (typeof parsed.numBots === 'number') cfgNumBots = parsed.numBots;
+            if (typeof parsed.startingChips === 'number') cfgStartingChips = parsed.startingChips;
+            if (typeof parsed.difficulty === 'string') cfgDifficulty = parsed.difficulty as Difficulty;
+          }
+        } catch {}
+
+        const serverCfg = uiDealConfigToServer({
+          smallBlind: GAME_CONFIG.smallBlind,
+          bigBlind: GAME_CONFIG.bigBlind,
+          numBots: cfgNumBots,
+          startingChips: cfgStartingChips,
+          difficulty: cfgDifficulty,
+        });
+        const s = await tableApi.createTable(serverCfg);
+        setServerTableId(s.table_id);
+        setTable(adaptServerToClient(s));
+      } catch (e) {
+        console.error('Failed to create server table on mount', e);
+      }
+    };
+    if (!savedTable) init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -284,7 +344,7 @@ const Play: React.FC = () => {
     return () => clearTimeout(tid);
   }, [table.actionLog, table.players]);
 
-  // Bot thinking: when a bot is pending, wait then perform action
+  // Bot thinking: when a bot is pending, wait then poll server for updated state
   React.useEffect(() => {
     if (table.botPendingIndex == null) return;
     // Respect time limit for bot thinking; randomize between 60%-100% of the limit, capped at the limit
@@ -300,11 +360,17 @@ const Play: React.FC = () => {
     botDeadlineRef.current = Date.now() + delay;
     botTotalDelayRef.current = delay;
     setBotTimeLeftMs(delay);
-    const t = setTimeout(() => {
-      setTable((prev: TableState) => performBotActionNow(prev));
+    const t = setTimeout(async () => {
+      if (!serverTableId) return;
+      try {
+        const s = await tableApi.getTableState(serverTableId);
+        setTable(adaptServerToClient(s));
+      } catch (e) {
+        console.error('Failed to poll server state after bot delay', e);
+      }
     }, delay);
     return () => clearTimeout(t);
-  }, [table.botPendingIndex, timeLimitSeconds, table.difficulty]);
+  }, [table.botPendingIndex, timeLimitSeconds, table.difficulty, serverTableId]);
 
   // Countdown updater for bot thinking overlay
   React.useEffect(() => {
@@ -372,35 +438,19 @@ const Play: React.FC = () => {
     }
   }, [table.dealerDrawInProgress, table.dealerDrawRevealed]);
 
-  const handleNewHand = () => {
+  const handleNewHand = React.useCallback(() => {
+    if (!serverTableId) return;
     setReveal(false);
-    setTable((prev: TableState) => {
-      const newTable = prepareNewHandWithoutDealing(prev);
-      
-      // Log the start of a new hand with blind information
-      const newLog = [
-        { message: 'New hand started', time: new Date().toLocaleTimeString() },
-        { message: `Blinds: $${GAME_CONFIG.smallBlind}/$${GAME_CONFIG.bigBlind}`, time: new Date().toLocaleTimeString() }
-      ];
-      
-      const updatedTable = {
-        ...newTable,
-        actionLog: [...newTable.actionLog, ...newLog]
-      };
-
-      // Start the hand with the new table state
-      const handStarted = startNewHand(updatedTable);
-      
-      // Process the first action if it's a bot's turn
-      const heroIdx = getHeroIndex(handStarted);
-      if (handStarted.currentPlayerIndex !== heroIdx) {
-        // This will process bot actions until it's the hero's turn
-        return handStarted;
+    (async () => {
+      try {
+        // Use resetTable as a way to start a new hand on server
+        const s = await tableApi.resetTable(serverTableId);
+        setTable(adaptServerToClient(s));
+      } catch (e) {
+        console.error('Failed to start new hand on server', e);
       }
-      
-      return handStarted;
-    });
-  };
+    })();
+  }, [serverTableId]);
 
   const handleEndGame = () => {
     setTable((prev: TableState) => ({
@@ -422,45 +472,34 @@ const Play: React.FC = () => {
   };
 
   const handlePlayerAction = (action: 'Fold' | 'Call' | 'Raise') => {
-    setTable((prev: TableState) => {
-      // Do nothing if it's not the hero's turn
-      const heroIdxGuard = getHeroIndex(prev);
-      if (prev.currentPlayerIndex !== heroIdxGuard || prev.stage === 'Showdown') {
-        return prev;
-      }
-      // Handle the player's action based on the button clicked
-      if (action === 'Fold') {
-        const newState = heroFold(prev);
-        if (newState.stage === 'Showdown') {
-          setReveal(true);
+    if (!serverTableId) return;
+    const hero = table.players.find((p: Player) => p.isHero);
+    if (!hero) return;
+    // If not hero's turn or already showdown, ignore
+    if (table.stage === 'Showdown' || table.players.indexOf(hero) !== table.currentPlayerIndex) return;
+
+    (async () => {
+      try {
+        let raise_to: number | undefined = undefined;
+        if (action === 'Raise') {
+          // For simplicity, raise to 3x the big blind or pot size, whichever is smaller
+          raise_to = Math.min(
+            table.pot + table.bigBlind * 3,
+            hero.chips + hero.bet
+          );
         }
-        return newState;
+        const s = await tableApi.postAction(serverTableId, {
+          player_id: hero.id,
+          action: action,
+          raise_to,
+        });
+        const next = adaptServerToClient(s);
+        setTable(next);
+        if (next.stage === 'Showdown') setReveal(true);
+      } catch (e) {
+        console.error('Failed to send player action', e);
       }
-      
-      if (action === 'Call') {
-        const newState = heroCall(prev);
-        if (newState.stage === 'Showdown') {
-          setReveal(true);
-        }
-        return newState;
-      }
-      
-      if (action === 'Raise') {
-        // For simplicity, raise to 3x the big blind or pot size, whichever is smaller
-        const hero = prev.players[getHeroIndex(prev)];
-        const raiseTo = Math.min(
-          prev.pot + prev.bigBlind * 3,
-          hero.chips + hero.bet
-        );
-        const newState = heroRaiseTo(prev, raiseTo);
-        if (newState.stage === 'Showdown') {
-          setReveal(true);
-        }
-        return newState;
-      }
-      
-      return prev;
-    });
+    })();
   };
 
   const { players, dealerIndex, smallBlindIndex, bigBlindIndex } = table;

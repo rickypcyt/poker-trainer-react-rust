@@ -8,6 +8,8 @@ mod poker_engine;
 use poker_engine::*;
 mod bot;
 use bot::{decide as bot_decide_core, BotDecisionRequest, BotDecisionResponse};
+// New multi-player table module
+mod table;
 
 // Game state storage
 type GameStore = Arc<Mutex<HashMap<String, GameState>>>;
@@ -139,6 +141,17 @@ async fn main() {
 
     // Initialize game store
     let game_store: GameStore = Arc::new(Mutex::new(HashMap::new()));
+    // Initialize multi-table store (server-side table engine)
+    let table_store: table::TableStore = Arc::new(Mutex::new(HashMap::new()));
+
+    // Build table router with its own state and routes
+    let table_router = Router::new()
+        .route("/", post(table::create_table))
+        .route("/:id", get(table::get_table_state))
+        .route("/:id/action", post(table::post_action))
+        .route("/:id/next_street", post(table::next_street))
+        .route("/:id/reset", post(table::reset_table))
+        .with_state(table_store);
 
     let app = Router::new()
         // Legacy endpoints
@@ -150,6 +163,8 @@ async fn main() {
         .route("/api/game/:game_id/action", post(player_action))
         .route("/api/game/:game_id/reset", post(reset_game))
         .route("/api/bot/decide", post(bot_decide))
+        // Multi-player table endpoints
+        .nest("/api/table", table_router)
         .with_state(game_store)
         .layer(cors);
 
@@ -163,6 +178,11 @@ async fn main() {
     println!("   - GET /api/game/:game_id (get game state)");
     println!("   - POST /api/game/:game_id/action (player action)");
     println!("   - POST /api/game/:game_id/reset (reset game)");
+    println!("   - POST /api/table (create multi-player table)");
+    println!("   - GET /api/table/:id (get table state)");
+    println!("   - POST /api/table/:id/action (player action)");
+    println!("   - POST /api/table/:id/next_street (advance street)");
+    println!("   - POST /api/table/:id/reset (reset table / new hand)");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     println!("✅ [BACKEND] Server listening and ready!");
