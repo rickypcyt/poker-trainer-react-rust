@@ -63,7 +63,7 @@ const CardShuffler: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-green-700">
-      <Navbar onShuffle={handleShuffle} disabled={isShuffling} />
+      <Navbar onShuffle={handleShuffle} disabled={isShuffling} subtitle="Card Shuffler" />
       <CardDeck deck={deck} isShuffling={isShuffling} />
     </div>
   );

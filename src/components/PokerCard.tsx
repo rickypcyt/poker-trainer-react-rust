@@ -5,11 +5,16 @@ import React from 'react';
 
 export const PokerCard: React.FC<PokerCardProps> = ({ suit, rank, isShuffling = false, animationDelayMs = 0, isHighlighted = false }) => {
   const flippedClass = isShuffling ? 'is-flipped' : '';
-  const highlightClass = isHighlighted ? 'card-highlighted' : '';
-  
+  const highlightClass = isHighlighted
+    ? 'ring-4 ring-green-600 shadow-xl shadow-green-700/30 scale-[1.02]'
+    : '';
+
   return (
-    <div className={`card card-3d ${highlightClass}`}>
-      <div className={`card-inner ${flippedClass}`} style={{ transitionDuration: '600ms' }}>
+    <div className={`card card-3d transition-all duration-200 ${highlightClass}`}>
+      <div
+        className={`card-inner ${flippedClass}`}
+        style={{ transitionDuration: '600ms', transitionDelay: `${animationDelayMs}ms` }}
+      >
         <div className={`card-face card-front ${SUIT_COLOR_CLASS[suit]}`}>
           <div className="card-rank">{rank}</div>
           <div className="card-suit">{SUIT_SYMBOL[suit]}</div>

@@ -3,6 +3,7 @@ import { startHotRefreshServer, stopHotRefreshServer } from './lib/hotRefresh';
 
 import CardShuffler from './pages/CardShuffler';
 import MainMenu from './pages/MainMenu';
+import Play from './pages/Play';
 import SoloTraining from './pages/SoloTraining';
 import { useEffect } from 'react';
 
@@ -22,6 +23,7 @@ function App() {
       <Route path="/" element={<MainMenu />} />
       <Route path="/shuffler" element={<CardShuffler />} />
       <Route path="/solo" element={<SoloTraining />} />
+      <Route path="/play" element={<Play />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
