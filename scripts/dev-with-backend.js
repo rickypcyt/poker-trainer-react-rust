@@ -171,6 +171,17 @@ async function sendHotRefresh() {
   }
 }
 
+// Poll until backend is healthy (or timeout)
+async function waitForBackendReady(maxMs = 60000) {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    const ok = await isBackendRunning();
+    if (ok) return true;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return false;
+}
+
 // Main function
 async function main() {
   console.log('🔄 [SCRIPT] Ensuring fresh start...');
@@ -182,13 +193,10 @@ async function main() {
   console.log('🚀 [SCRIPT] Starting fresh Rust backend...');
   const backendProcess = startBackend();
   
-  // Wait a bit for backend to start
-  console.log('⏳ [SCRIPT] Waiting for backend to start...');
-  await new Promise(resolve => setTimeout(resolve, 4000));
-  
-  // Verify backend is now running
-  const nowRunning = await isBackendRunning();
-  if (!nowRunning) {
+  // Wait for backend to start (poll health up to 60s)
+  console.log('⏳ [SCRIPT] Waiting for backend to become healthy (up to 60s)...');
+  const ready = await waitForBackendReady(60000);
+  if (!ready) {
     console.log('❌ [SCRIPT] Backend failed to start properly');
     process.exit(1);
   }

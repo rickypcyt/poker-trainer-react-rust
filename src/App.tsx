@@ -29,7 +29,7 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       {/* Global Toast container */}
-      <ToastContainer position="bottom-right" autoClose={3000} hideProgressBar theme="dark" closeOnClick newestOnTop pauseOnHover={false} />
+      <ToastContainer position="top-center" autoClose={3000} hideProgressBar theme="dark" closeOnClick newestOnTop pauseOnHover={false} />
     </>
   );
 }

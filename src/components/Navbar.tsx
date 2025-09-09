@@ -23,7 +23,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <nav className="bg-white/5 backdrop-blur-xl border-b border-white/10">
       <div className="container mx-auto px-4 py-4">
-        <div className="flex items-center justify-between">
+        <div className="grid grid-cols-3 items-center">
           {/* Home Button */}
           <Link 
             to="/" 
@@ -38,7 +38,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </Link>
 
           {/* Title */}
-          <div className="flex-1 text-center">
+          <div className="text-center justify-self-center">
             <h1 className="text-xl sm:text-2xl font-bold text-white bg-gradient-to-r from-white to-white/80 bg-clip-text text-transparent">
               Poker Trainer
             </h1>
@@ -48,7 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 justify-self-end">
             {onMenuToggle && (
               <button 
                 className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors duration-300 md:hidden"

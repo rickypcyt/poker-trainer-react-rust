@@ -142,6 +142,7 @@ async fn main() {
     // Initialize game store
     let game_store: GameStore = Arc::new(Mutex::new(HashMap::new()));
     // Initialize multi-table store (server-side table engine)
+    // Note: table::TableStore uses tokio::sync::Mutex
     let table_store: table::TableStore = Arc::new(Mutex::new(HashMap::new()));
 
     // Build table router with its own state and routes
@@ -184,7 +185,10 @@ async fn main() {
     println!("   - POST /api/table/:id/next_street (advance street)");
     println!("   - POST /api/table/:id/reset (reset table / new hand)");
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    println!("✅ [BACKEND] Server listening and ready!");
-    axum::serve(listener, app).await.unwrap();
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async move {
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        println!("✅ [BACKEND] Server listening and ready!");
+        axum::serve(listener, app).await.unwrap();
+    }).await;
 }

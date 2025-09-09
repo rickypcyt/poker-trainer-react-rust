@@ -276,6 +276,7 @@ export interface TableConfigRequest {
   num_bots: number; // 0..10
   starting_chips: number;
   difficulty?: 'Easy' | 'Medium' | 'Hard';
+  time_limit_seconds?: number;
 }
 
 export interface TableStateServer {
@@ -297,6 +298,7 @@ export interface TableStateServer {
   stage: TableStage;
   logs: TableLogEntry[];
   bot_pending_index?: number | null;
+  bot_decision_due_at?: string | null;
   difficulty?: 'Easy' | 'Medium' | 'Hard';
   // Optional dealer draw helpers
   dealer_draw_cards?: Record<string, Card | null>;

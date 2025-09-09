@@ -1,7 +1,15 @@
 import { CHIP_COLOR_CLASS, CHIP_DENOMS } from '../constants/chips';
 import type { Difficulty, Player, TableState } from '../types/table';
-import { tableApi } from '../lib/pokerService';
-import { adaptServerToClient, uiDealConfigToServer } from '../lib/stateAdapter';
+import {
+  createInitialTable,
+  performDealerDraw,
+  revealDealerDraw as revealDealerDrawEngine,
+  startNewHand,
+  heroFold,
+  heroCall,
+  heroRaiseTo,
+  performBotActionNow,
+} from '../lib/tableEngine';
 
 import ChipStack from '../components/ChipStack';
 import Dealer from '../components/Dealer';
@@ -64,41 +72,38 @@ const Play: React.FC = () => {
       }
     }
 
-    // Initialize with a minimal placeholder until server responds
-    return {
-      deck: [],
-      board: [],
-      burned: [],
-      communityCards: [],
-      players: [],
-      dealerIndex: -1,
-      smallBlindIndex: -1,
-      bigBlindIndex: -1,
-      currentPlayerIndex: 0,
-      pot: 0,
-      potStack: {},
+    // Initialize a fresh local engine table
+    const numBots = (() => {
+      try {
+        const cfg = typeof window !== 'undefined' ? localStorage.getItem('poker_trainer_config') : null;
+        if (cfg) {
+          const parsed = JSON.parse(cfg);
+          if (typeof parsed.numBots === 'number') return parsed.numBots;
+        }
+      } catch { /* ignore */ }
+      return GAME_CONFIG.numBots;
+    })();
+    const startingChips = (() => {
+      try {
+        const cfg = typeof window !== 'undefined' ? localStorage.getItem('poker_trainer_config') : null;
+        if (cfg) {
+          const parsed = JSON.parse(cfg);
+          if (typeof parsed.startingChips === 'number') return parsed.startingChips;
+        }
+      } catch { /* ignore */ }
+      return GAME_CONFIG.startingChips;
+    })();
+    const t = createInitialTable({
       smallBlind: GAME_CONFIG.smallBlind,
       bigBlind: GAME_CONFIG.bigBlind,
-      handNumber: 0,
-      currentBet: 0,
-      dealerDrawCards: {},
-      dealerDrawRevealed: false,
-      dealerDrawInProgress: false,
-      actionLog: [],
-      dealingState: {
-        isDealing: false,
-        currentDealIndex: 0,
-        dealOrder: [],
-        highlightHighCard: false,
-        highCardPlayerIndex: null,
-        stage: 'none'
-      },
-      stage: 'DealerDraw',
-      botPendingIndex: null,
+      numBots,
+      startingChips,
       difficulty: cfgDifficulty,
-    } as TableState;
+      timeLimitSeconds: GAME_CONFIG.defaultTimeLimitSeconds,
+    });
+    return t;
   });
-  const [serverTableId, setServerTableId] = React.useState<string | null>(null);
+  // No server id when using local engine
   // Local helpers replacing former tableEngine utilities, backed by server state
   const getHeroIndex = React.useCallback((t: TableState) => {
     return t.players.findIndex(p => p.isHero);
@@ -109,16 +114,21 @@ const Play: React.FC = () => {
     const byPlayers = t.players.length ? Math.max(...t.players.map(p => p.bet || 0)) : 0;
     return Math.max(byField, byPlayers);
   }, []);
+  // Reveal winner of Dealer Draw using frontend engine (single-card reveal with tie-breaker by suit)
   const revealDealerDraw = React.useCallback((prev: TableState) => {
-    // Ask server for updated state; return prev synchronously (setTable caller will keep prev),
-    // and then we update asynchronously when response arrives.
-    if (serverTableId) {
-      tableApi.getTableState(serverTableId)
-        .then(s => setTable(adaptServerToClient(s)))
-        .catch(e => console.error('Failed to sync dealer draw from server', e));
+    return revealDealerDrawEngine(prev);
+  }, []);
+
+  // When entering DealerDraw, auto-draw exactly ONE card per player if not already drawn
+  React.useEffect(() => {
+    if (table.dealerDrawInProgress && !table.dealerDrawRevealed) {
+      const cards = table.dealerDrawCards || {};
+      const needsCards = Object.keys(cards).length === 0 || Object.values(cards).some((c) => c == null);
+      if (needsCards) {
+        setTable((prev: TableState) => performDealerDraw(prev));
+      }
     }
-    return prev;
-  }, [serverTableId]);
+  }, [table.dealerDrawInProgress, table.dealerDrawRevealed, table.dealerDrawCards, table.players.length]);
 
   // Pending setup values (used only when showSetup is true)
   const [pendingNumBots, setPendingNumBots] = React.useState<number>(() => {
@@ -185,65 +195,24 @@ const Play: React.FC = () => {
       localStorage.setItem('poker_trainer_config', JSON.stringify({ numBots: pendingNumBots, startingChips: pendingBuyIn, timeLimitSeconds: pendingTimeLimit, difficulty: pendingDifficulty }));
       localStorage.removeItem('poker_trainer_table');
     } catch { /* ignore */ }
-    // Create a fresh server table using chosen values
-    (async () => {
-      try {
-        const serverCfg = uiDealConfigToServer({
-          smallBlind: GAME_CONFIG.smallBlind,
-          bigBlind: GAME_CONFIG.bigBlind,
-          numBots: pendingNumBots,
-          startingChips: pendingBuyIn,
-          difficulty: pendingDifficulty,
-        });
-        const s = await tableApi.createTable(serverCfg);
-        setServerTableId(s.table_id);
-        setReveal(false);
-        setTable(adaptServerToClient(s));
-        setShowSetup(false);
-        setTimeLimitSeconds(pendingTimeLimit);
-      } catch (e) {
-        console.error('Failed to create server table from setup', e);
-      }
-    })();
+    // Create a fresh local table using engine
+    const t = createInitialTable({
+      smallBlind: GAME_CONFIG.smallBlind,
+      bigBlind: GAME_CONFIG.bigBlind,
+      numBots: pendingNumBots,
+      startingChips: pendingBuyIn,
+      difficulty: pendingDifficulty,
+      timeLimitSeconds: pendingTimeLimit,
+    });
+    setReveal(false);
+    setTable(t);
+    setShowSetup(false);
+    setTimeLimitSeconds(pendingTimeLimit);
   };
   const [reveal, setReveal] = React.useState(false);
   const [isDealing] = React.useState(false);
 
-  // Create server table on mount if no saved state
-  React.useEffect(() => {
-    const init = async () => {
-      try {
-        // Read config overrides
-        let cfgNumBots = GAME_CONFIG.numBots;
-        let cfgStartingChips = GAME_CONFIG.startingChips;
-        let cfgDifficulty: Difficulty = 'Medium';
-        try {
-          const cfg = typeof window !== 'undefined' ? localStorage.getItem('poker_trainer_config') : null;
-          if (cfg) {
-            const parsed = JSON.parse(cfg);
-            if (typeof parsed.numBots === 'number') cfgNumBots = parsed.numBots;
-            if (typeof parsed.startingChips === 'number') cfgStartingChips = parsed.startingChips;
-            if (typeof parsed.difficulty === 'string') cfgDifficulty = parsed.difficulty as Difficulty;
-          }
-        } catch {}
-
-        const serverCfg = uiDealConfigToServer({
-          smallBlind: GAME_CONFIG.smallBlind,
-          bigBlind: GAME_CONFIG.bigBlind,
-          numBots: cfgNumBots,
-          startingChips: cfgStartingChips,
-          difficulty: cfgDifficulty,
-        });
-        const s = await tableApi.createTable(serverCfg);
-        setServerTableId(s.table_id);
-        setTable(adaptServerToClient(s));
-      } catch (e) {
-        console.error('Failed to create server table on mount', e);
-      }
-    };
-    if (!savedTable) init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Using local engine: no server initialization effect needed
 
   // Persist table to localStorage on change
   React.useEffect(() => {
@@ -272,6 +241,14 @@ const Play: React.FC = () => {
     setEndModalResult(heroWon ? 'won' : 'lost');
     setIsEndModalOpen(true);
     lastModalHandRef.current = table.handNumber;
+    // Append a concise result log entry for clarity
+    setTable((prev: TableState) => ({
+      ...prev,
+      actionLog: [
+        ...prev.actionLog,
+        { message: heroWon ? 'You won this hand' : 'You lost this hand', time: new Date().toLocaleTimeString(), isImportant: true }
+      ]
+    }));
   }, [table.stage, table.handNumber, table.actionLog]);
 
   // Show toast for EVERY new log entry; use toastShown flag to avoid duplicates
@@ -344,33 +321,35 @@ const Play: React.FC = () => {
     return () => clearTimeout(tid);
   }, [table.actionLog, table.players]);
 
-  // Bot thinking: when a bot is pending, wait then poll server for updated state
+  // Bot thinking: when a bot is pending, wait locally then perform the action via engine
   React.useEffect(() => {
-    if (table.botPendingIndex == null) return;
-    // Respect time limit for bot thinking; randomize between 60%-100% of the limit, capped at the limit
-    const diff: Difficulty = (table.difficulty as Difficulty) ?? 'Medium';
-    const baseLimitMs = Math.max(700, Math.floor(timeLimitSeconds * 1000));
-    // Difficulty shifts the typical thinking time, but must never exceed baseLimitMs
-    const typicalMult = diff === 'Easy' ? 0.7 : diff === 'Hard' ? 0.95 : 0.85;
-    const windowStart = Math.max(0.6, typicalMult - 0.15);
-    const windowEnd = Math.min(1.0, typicalMult + 0.15);
-    const randFactor = windowStart + Math.random() * Math.max(0.05, (windowEnd - windowStart));
-    const delay = Math.min(baseLimitMs, Math.floor(baseLimitMs * randFactor));
-    // Track deadline for UI countdown
-    botDeadlineRef.current = Date.now() + delay;
-    botTotalDelayRef.current = delay;
-    setBotTimeLeftMs(delay);
-    const t = setTimeout(async () => {
-      if (!serverTableId) return;
-      try {
-        const s = await tableApi.getTableState(serverTableId);
-        setTable(adaptServerToClient(s));
-      } catch (e) {
-        console.error('Failed to poll server state after bot delay', e);
-      }
-    }, delay);
-    return () => clearTimeout(t);
-  }, [table.botPendingIndex, timeLimitSeconds, table.difficulty, serverTableId]);
+    const hardCapMs = Math.max(200, (timeLimitSeconds ?? GAME_CONFIG.defaultTimeLimitSeconds) * 1000);
+    if (table.botPendingIndex == null) {
+      botDeadlineRef.current = null;
+      botTotalDelayRef.current = 0;
+      setBotTimeLeftMs(0);
+      return;
+    }
+    // Respect exact time limit chosen in game settings
+    const chosenDelayMs = hardCapMs;
+    const deadline = Date.now() + chosenDelayMs;
+    botDeadlineRef.current = deadline;
+    botTotalDelayRef.current = chosenDelayMs;
+    setBotTimeLeftMs(chosenDelayMs);
+
+    const interval = setInterval(() => {
+      const left = Math.max(0, deadline - Date.now());
+      setBotTimeLeftMs(left);
+    }, 100);
+    const to = setTimeout(() => {
+      setTable((prev: TableState) => {
+        const next = performBotActionNow(prev);
+        if (next.stage === 'Showdown') setReveal(true);
+        return next;
+      });
+    }, chosenDelayMs);
+    return () => { clearInterval(interval); clearTimeout(to); };
+  }, [table.botPendingIndex, timeLimitSeconds]);
 
   // Countdown updater for bot thinking overlay
   React.useEffect(() => {
@@ -384,7 +363,7 @@ const Play: React.FC = () => {
       setBotTimeLeftMs(left);
     }, 100);
     return () => clearInterval(i);
-  }, [table.botPendingIndex]);
+  }, [table.botPendingIndex, table.botDecisionDueAt]);
 
   // Animate chips to pot when pot increases
   React.useEffect(() => {
@@ -428,31 +407,40 @@ const Play: React.FC = () => {
     return table.potStack || {} as Record<number, number>;
   }, [table.potStack]);
 
-  // After revealing highest card, briefly show the cards and toast, then auto-start the hand
+  // Using local engine: no server polling while a bot is pending
+
+  // After revealing highest card, show the cards and toast, then auto-start the hand after 5 seconds
   React.useEffect(() => {
     if (table.dealerDrawInProgress && table.dealerDrawRevealed) {
+      // Toast winner and dealer seat
+      try {
+        const winnerIdx = table.dealingState?.highCardPlayerIndex ?? table.dealerIndex;
+        if (winnerIdx != null && winnerIdx >= 0) {
+          const winner = table.players[winnerIdx];
+          const winnerCard = table.dealerDrawCards[winner.id];
+          if (winner && winnerCard) {
+            toast.success(`${winner.name} wins the dealer button (high card ${winnerCard.rank} of ${winnerCard.suit})`);
+          } else if (winner) {
+            toast.success(`${winner.name} wins the dealer button (high card)`);
+          }
+        }
+      } catch (e) {
+        // Non-fatal: toasting winner is best-effort only
+        try { console.warn('Dealer draw toast failed', e); } catch { /* noop */ }
+      }
       const t = setTimeout(() => {
-        handleNewHand();
-      }, 1200); // small pause to let users see the reveal and toast
+        // Start the hand locally with the engine
+        setReveal(false);
+        setTable((prev: TableState) => startNewHand(prev));
+      }, 1500); // shorter wait so we don't linger on starting state
       return () => clearTimeout(t);
     }
-  }, [table.dealerDrawInProgress, table.dealerDrawRevealed]);
+  }, [table.dealerDrawInProgress, table.dealerDrawRevealed, table.dealerDrawCards, table.players, table.dealerIndex, table.dealingState?.highCardPlayerIndex]);
 
-  const handleNewHand = React.useCallback(() => {
-    if (!serverTableId) return;
-    setReveal(false);
-    (async () => {
-      try {
-        // Use resetTable as a way to start a new hand on server
-        const s = await tableApi.resetTable(serverTableId);
-        setTable(adaptServerToClient(s));
-      } catch (e) {
-        console.error('Failed to start new hand on server', e);
-      }
-    })();
-  }, [serverTableId]);
+  // (removed handleNewHand to avoid reference before init in dependencies)
 
   const handleEndGame = () => {
+    // Append a log entry in the in-memory state for UX continuity
     setTable((prev: TableState) => ({
       ...prev,
       actionLog: [
@@ -465,41 +453,50 @@ const Play: React.FC = () => {
         }
       ]
     }));
+
+    // Hard clear any persisted table/cache so a new session starts clean
     try {
+      // Explicit known keys
       localStorage.removeItem('poker_trainer_table');
+      localStorage.removeItem('poker_trainer_table_id');
+      // Clean any other stray keys that belong to the saved table namespace
+      const toRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k) continue;
+        if (k.startsWith('poker_trainer_table')) {
+          toRemove.push(k);
+        }
+      }
+      toRemove.forEach((k) => localStorage.removeItem(k));
     } catch { /* ignore */ }
+
+    // Go back to main menu
     navigate('/');
   };
 
   const handlePlayerAction = (action: 'Fold' | 'Call' | 'Raise') => {
-    if (!serverTableId) return;
     const hero = table.players.find((p: Player) => p.isHero);
     if (!hero) return;
     // If not hero's turn or already showdown, ignore
     if (table.stage === 'Showdown' || table.players.indexOf(hero) !== table.currentPlayerIndex) return;
 
-    (async () => {
-      try {
-        let raise_to: number | undefined = undefined;
-        if (action === 'Raise') {
-          // For simplicity, raise to 3x the big blind or pot size, whichever is smaller
-          raise_to = Math.min(
-            table.pot + table.bigBlind * 3,
-            hero.chips + hero.bet
-          );
-        }
-        const s = await tableApi.postAction(serverTableId, {
-          player_id: hero.id,
-          action: action,
-          raise_to,
-        });
-        const next = adaptServerToClient(s);
-        setTable(next);
-        if (next.stage === 'Showdown') setReveal(true);
-      } catch (e) {
-        console.error('Failed to send player action', e);
+    try {
+      let next: TableState = table;
+      if (action === 'Fold') {
+        next = heroFold(table);
+      } else if (action === 'Call') {
+        next = heroCall(table);
+      } else if (action === 'Raise') {
+        // Simple: raise to 3x big blind or all-in cap
+        const raiseTo = Math.min(table.pot + table.bigBlind * 3, hero.chips + hero.bet);
+        next = heroRaiseTo(table, raiseTo);
       }
-    })();
+      setTable(next);
+      if (next.stage === 'Showdown') setReveal(true);
+    } catch (e) {
+      console.error('Failed to process player action locally', e);
+    }
   };
 
   const { players, dealerIndex, smallBlindIndex, bigBlindIndex } = table;
@@ -549,8 +546,7 @@ const Play: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-800 via-green-700 to-green-900">
       <Navbar 
-        subtitle="Play with Bots" 
-        onShuffle={handleNewHand} 
+        onShuffle={() => { setReveal(false); setTable((prev: TableState) => startNewHand(prev)); }} 
         actionLabel="New Hand" 
         onOpenLogs={() => setIsLogsOpen(true)}
         onEndGame={handleEndGame}
@@ -588,7 +584,7 @@ const Play: React.FC = () => {
               </button>
               <button
                 className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white font-semibold py-2 rounded-md shadow"
-                onClick={() => { setIsEndModalOpen(false); handleNewHand(); }}
+                onClick={() => { setIsEndModalOpen(false); setReveal(false); setTable((prev: TableState) => startNewHand(prev)); }}
               >
                 Nueva mano
               </button>
@@ -721,10 +717,19 @@ const Play: React.FC = () => {
               </button>
             </div>
           ) : table.dealerDrawInProgress && table.dealerDrawRevealed ? (
-            <div className="flex justify-center">
+            <div className="flex flex-col gap-2 items-center">
               <div className="text-green-300 font-semibold px-4 py-2 rounded-md bg-green-600/20 border border-green-400/40">
                 Starting hand...
               </div>
+              <button
+                className="bg-green-600 hover:bg-green-500 text-white font-semibold px-4 py-2 rounded-md transition-colors shadow-md"
+                onClick={() => {
+                  setReveal(false);
+                  setTable((prev: TableState) => startNewHand(prev));
+                }}
+              >
+                Start hand now
+              </button>
             </div>
           ) : (
             <div className="flex flex-row flex-wrap gap-2 items-stretch">
@@ -863,6 +868,7 @@ const Play: React.FC = () => {
               isThinking={table.botPendingIndex === players.indexOf(p)}
               actionText={seatActions[p.id]}
               chipAnchorRef={(el) => { chipAnchorsRef.current[p.id] = el; }}
+              isHighlighted={table.dealerDrawInProgress && table.dealerDrawRevealed && (players.indexOf(p) === (table.dealingState?.highCardPlayerIndex ?? table.dealerIndex))}
             />
           </div>
         ))}
@@ -893,6 +899,7 @@ const Play: React.FC = () => {
                 actionText={seatActions[p.id]}
                 chipAnchorRef={(el) => { chipAnchorsRef.current[p.id] = el; }}
                 compactLevel={compactLevel as 'normal' | 'compact' | 'ultra'}
+                isHighlighted={table.dealerDrawInProgress && table.dealerDrawRevealed && (idx === (table.dealingState?.highCardPlayerIndex ?? table.dealerIndex))}
               />
             </div>
           );
@@ -903,7 +910,7 @@ const Play: React.FC = () => {
       </div>
       {/* Bot time limit overlay */}
       {table.botPendingIndex != null && botTotalDelayRef.current > 0 && (
-        <div className="pointer-events-none fixed z-[70] top-3 right-3 bg-black/70 text-white px-3 py-2 rounded-lg shadow border border-white/20">
+        <div className="pointer-events-none fixed z-[70] top-20 right-5 bg-black/70 text-white px-3 py-2 rounded-lg shadow border border-white/20">
           {(() => {
             const idx = table.botPendingIndex as number;
             const actor = table.players[idx];
@@ -932,6 +939,28 @@ const Play: React.FC = () => {
           className={`pointer-events-none fixed z-[60] w-5 h-5 rounded-full border-2 border-white/70 shadow ${c.colorClass}`}
           style={{ left: c.left, top: c.top, transition: 'transform 0.75s ease-out', transform: `translate(${c.toLeft - c.left}px, ${c.toTop - c.top}px)` }}
         />)
+      )}
+
+      {/* End-of-hand modal */}
+      {isEndModalOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70">
+          <div className="bg-zinc-900 text-white rounded-xl shadow-2xl border border-white/10 w-[90%] max-w-md p-6 text-center">
+            <div className="text-2xl font-extrabold mb-2">
+              {endModalResult === 'won' ? 'You won this hand' : endModalResult === 'lost' ? 'You lost this hand' : 'Hand finished'}
+            </div>
+            <div className="text-sm opacity-80 mb-6">Press Continue to deal the next hand.</div>
+            <button
+              className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-semibold shadow"
+              onClick={() => {
+                setIsEndModalOpen(false);
+                setReveal(false);
+                setTable((prev: TableState) => startNewHand(prev));
+              }}
+            >
+              Continue
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

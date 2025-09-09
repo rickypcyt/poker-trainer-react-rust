@@ -8,6 +8,9 @@ export type ChipStack = Record<number, number>; // key is chip value (e.g., 25 -
 // Game difficulty levels for bot behavior
 export type Difficulty = 'Easy' | 'Medium' | 'Hard';
 
+// Bot personality archetypes to vary style
+export type Personality = 'Aggressive' | 'Passive' | 'Balanced' | 'Maniac' | 'Nit';
+
 export interface Player {
   id: string;
   name: string;
@@ -19,6 +22,11 @@ export interface Player {
   holeCards: Card[];
   hasFolded: boolean;
   seatIndex: number;
+  // Optional per-bot AI configuration. If omitted, table-level defaults are used.
+  ai?: {
+    difficulty?: Difficulty;
+    personality?: Personality;
+  };
 }
 
 export interface TableState {
@@ -57,6 +65,8 @@ export interface TableState {
   stage: 'DealerDraw' | 'PreFlop' | 'Flop' | 'Turn' | 'River' | 'Showdown';
   // Bot thinking scheduling
   botPendingIndex?: number | null;
+  // Absolute server-side deadline for the current bot decision (RFC3339)
+  botDecisionDueAt?: string | null;
   // Difficulty level that influences bot decisions
   difficulty?: Difficulty;
 }
@@ -68,6 +78,7 @@ export interface DealConfig {
   startingChips: number;
   initialChipStack?: ChipStack;
   difficulty?: Difficulty;
+  timeLimitSeconds?: number;
 }
 
 export interface ActionLogEntry {

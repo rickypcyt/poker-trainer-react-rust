@@ -19,6 +19,7 @@ interface PlayerSeatProps {
   actionText?: string;
   chipAnchorRef?: (el: HTMLDivElement | null) => void;
   compactLevel?: 'normal' | 'compact' | 'ultra';
+  isHighlighted?: boolean;
 }
 
 const PlayerSeat: React.FC<PlayerSeatProps> = ({ 
@@ -35,7 +36,8 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
   isThinking = false,
   actionText,
   chipAnchorRef,
-  compactLevel = 'normal'
+  compactLevel = 'normal',
+  isHighlighted = false,
 }) => {
   const tag = isDealer ? 'D' : isSmallBlind ? 'SB' : isBigBlind ? 'BB' : '';
   const tagClass = isDealer
@@ -52,20 +54,23 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
   const isShowdown = reveal || gameStage === 'Showdown';
   const shouldShowCards = isHero || isShowdown;
 
-  // For dealer draw, show only the draw card. For regular play, show hole cards.
-  // When hole cards are unknown, provide valid placeholder cards; they'll be face-down via isFaceDown.
-  const cards = showDrawCard && drawCard 
-    ? [drawCard] // Only show the draw card during dealer draw
-    : (player.holeCards?.length === 2 ? player.holeCards : [
-        { suit: 'spades', rank: 'A' } as Card,
-        { suit: 'hearts', rank: 'K' } as Card
-      ]);
+  // For dealer draw, always show exactly ONE card. If the draw card isn't set yet, show a single placeholder face-down.
+  // For regular play, show two hole cards or two placeholders.
+  const cards = showDrawCard
+    ? [drawCard ?? ({ suit: 'spades', rank: 'A' } as Card)]
+    : (player.holeCards?.length === 2
+        ? player.holeCards
+        : [
+            { suit: 'spades', rank: 'A' } as Card,
+            { suit: 'hearts', rank: 'K' } as Card,
+          ]);
   
   const faceDown = showDrawCard ? !reveal : (player.isBot && !shouldShowCards);
   const avatar = isHero ? '🧑‍💻' : '🤖';
 
   const foldedClass = player.hasFolded ? 'opacity-50 grayscale' : '';
   const activeClass = isActive ? 'ring-2 ring-yellow-400 shadow-[0_0_16px_rgba(250,204,21,0.35)]' : '';
+  const highlightClass = isHighlighted ? 'ring-2 ring-green-400 shadow-[0_0_22px_rgba(74,222,128,0.55)]' : '';
 
   // Density-driven tweaks for bots
   const botDensity = isHero ? 'normal' : compactLevel;
@@ -79,7 +84,7 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
   };
 
   return (
-    <div data-position={position} className={`relative flex items-center ${isHero ? 'gap-2 p-1' : (botDensity === 'ultra' ? 'gap-0.5 p-0.5' : botDensity === 'compact' ? 'gap-1 p-0.5' : 'gap-1 p-0.5')} bg-black/20 rounded-lg ${activeClass} ${foldedClass}`}>
+    <div data-position={position} className={`relative flex items-center ${isHero ? 'gap-2 p-1' : (botDensity === 'ultra' ? 'gap-0.5 p-0.5' : 'gap-1 p-0.5')} bg-black/20 rounded-lg ${activeClass} ${highlightClass} ${foldedClass}`}>
       {/* Action bubble */}
       {actionText && (
         <div className={`absolute ${isHero ? '-top-6' : '-top-5'} left-1/2 -translate-x-1/2 ${isHero ? 'text-base px-3 py-1' : 'text-[11px] px-2 py-0.5'} font-semibold text-white bg-neutral-900/90 border border-white/20 rounded-full shadow-lg whitespace-nowrap`}>
@@ -105,7 +110,7 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
           <span className={`text-white/80 font-semibold ${isHero ? 'text-base' : (botDensity === 'ultra' ? 'text-[11px]' : 'text-[12px]')} font-mono`}>${isHero ? player.chips.toLocaleString() : formatChips(player.chips)}</span>
         </div>
         {isThinking && !player.hasFolded && (
-          <div className="mt-0.5 flex items-center justify-center gap-1 text-[10px] text-white/80">
+          <div className="mt-2 flex items-center justify-center gap-1 text-[10px] text-white/80">
             <span className="inline-block w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce [animation-delay:0ms]"></span>
             <span className="inline-block w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce [animation-delay:120ms]"></span>
             <span className="inline-block w-1.5 h-1.5 bg-white/70 rounded-full animate-bounce [animation-delay:240ms]"></span>

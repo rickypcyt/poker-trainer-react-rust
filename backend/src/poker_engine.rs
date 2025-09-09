@@ -745,7 +745,24 @@ impl GameState {
 
         // High card - find the highest card
         let mut all_cards: Vec<Card> = cards.iter().map(|c| **c).collect();
-        all_cards.sort_by(|a, b| b.rank_value().cmp(&a.rank_value()));
+        // Sort by rank descending, then suit descending (Spades > Hearts > Diamonds > Clubs)
+        let suit_value = |s: Suit| -> u8 {
+            match s {
+                Suit::Spades => 4,
+                Suit::Hearts => 3,
+                Suit::Diamonds => 2,
+                Suit::Clubs => 1,
+            }
+        };
+        all_cards.sort_by(|a, b| {
+            let ar = a.rank_value();
+            let br = b.rank_value();
+            if ar != br {
+                br.cmp(&ar)
+            } else {
+                suit_value(b.suit).cmp(&suit_value(a.suit))
+            }
+        });
         
         HandEvaluation {
             rank: HandRank::HighCard,
@@ -754,6 +771,11 @@ impl GameState {
             highlighted_cards: vec![all_cards[0]],
             combination_type: "High Card".to_string(),
         }
+    }
+
+    // Public helper for external modules (e.g., table.rs) to evaluate best hand
+    pub fn evaluate_best_hand_public(cards: [&Card; 7]) -> HandEvaluation {
+        Self::evaluate_best_hand(&cards)
     }
 
     fn find_straight(cards: &[&Card; 7]) -> Option<Vec<Card>> {

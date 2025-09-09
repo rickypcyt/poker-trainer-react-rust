@@ -35,7 +35,7 @@ pub fn decide(req: &BotDecisionRequest) -> BotDecisionResponse {
     let lowest = av.min(bv);
 
     let strong_pair = pair && highest >= 10; // TT+
-    let big_ace = (highest == 14 && lowest >= 12); // AK/AQ
+    let big_ace = highest == 14 && lowest >= 12; // AK/AQ
     let suited_broadway = suited && highest >= 12 && lowest >= 11; // KQs, KJs, QJs
     let connectors = gap <= 1 && highest >= 10; // broadway connectors
 

@@ -1,4 +1,4 @@
-import type { ChipStack, DealConfig, Player, TableState, Difficulty } from '../types/table';
+import type { ChipStack, DealConfig, Difficulty, Player, Personality, TableState } from '../types/table';
 
 import type { Card } from './pokerService';
 import type { DeckCard } from '../types/cards';
@@ -139,6 +139,9 @@ export function createInitialTable(config: DealConfig): TableState {
   
   // Bots next seats - use the same chip distribution as hero
   const botChipStack = createDefaultChipStack(config.initialChipStack);
+  // Predefined cycles to ensure diversity across bots
+  const personalities: Personality[] = ['Aggressive', 'Passive', 'Balanced', 'Maniac', 'Nit'];
+  const difficulties: Difficulty[] = ['Easy', 'Medium', 'Hard'];
   for (let i = 0; i < config.numBots; i += 1) {
     players.push({
       id: generateId('bot'),
@@ -151,6 +154,11 @@ export function createInitialTable(config: DealConfig): TableState {
       holeCards: [] as Card[],
       hasFolded: false,
       seatIndex: i + 1,
+      ai: {
+        // If the table provides a difficulty, keep it as a baseline but vary per-bot if not set
+        difficulty: (config.difficulty ?? difficulties[i % difficulties.length]) as Difficulty,
+        personality: personalities[i % personalities.length],
+      }
     });
   }
 
@@ -246,7 +254,14 @@ export function startNewHand(state: TableState): TableState {
     dealerDrawCards: state.dealerDrawCards,
     dealerDrawRevealed: false,
     dealerDrawInProgress: false,
-    actionLog: [...state.actionLog, { message: `New hand #${state.handNumber + 1}`, time: new Date().toLocaleTimeString() }],
+    actionLog: [
+      ...state.actionLog,
+      { message: `New hand #${state.handNumber + 1}`, time: new Date().toLocaleTimeString() },
+      { message: `${players[smallBlindIndex].name} posts small blind ${state.smallBlind}`,
+        time: new Date().toLocaleTimeString() },
+      { message: `${players[bigBlindIndex].name} posts big blind ${state.bigBlind}`,
+        time: new Date().toLocaleTimeString() },
+    ],
     dealingState: { ...state.dealingState, stage: 'hole-cards', isDealing: false },
     botPendingIndex: null
   };
@@ -398,10 +413,11 @@ export function revealDealerDraw(state: TableState): TableState {
     // Keep dealer draw phase active briefly so UI can show revealed cards and toast
     // The UI will transition to Preflop automatically shortly after.
     dealerDrawInProgress: true,
+    dealingState: { ...state.dealingState, highlightHighCard: true, highCardPlayerIndex: winnerIdx, stage: 'dealer-draw' },
     actionLog: [
       ...state.actionLog,
       { message: `${state.players[winnerIdx].name} wins dealer button (high card)`, time: new Date().toLocaleTimeString() },
-    ],
+    ]
   };
 }
 
@@ -503,6 +519,17 @@ function processNextAction(state: TableState): TableState {
     return state;
   }
 
+  // Safety: if only one active player remains, immediately award the pot and end the hand
+  const activePlayersNow = state.players.filter(p => !p.hasFolded);
+  if (activePlayersNow.length <= 1) {
+    const winnerIndex = state.players.findIndex(p => !p.hasFolded);
+    if (winnerIndex >= 0) {
+      const awarded = awardPotToWinner(state, winnerIndex, 'all others folded');
+      return { ...awarded, stage: 'Showdown' };
+    }
+    return state;
+  }
+
   // Find the next active player who hasn't folded and has chips
   let nextPlayerIndex = state.currentPlayerIndex;
   let attempts = 0;
@@ -554,7 +581,9 @@ function decideAndApplyBotAction(state: TableState, botIndex: number): TableStat
   const random = Math.random();
   const isPreflop = state.stage === 'PreFlop';
   const minRaise = Math.max(state.bigBlind, highestBet * 2 - bot.bet);
-  const diff: Difficulty = state.difficulty ?? 'Medium';
+  // Pull difficulty/personality from the bot if available, else fallback to table defaults
+  const diff: Difficulty = (bot.ai?.difficulty ?? state.difficulty ?? 'Medium') as Difficulty;
+  const personality: Personality = (bot.ai?.personality ?? 'Balanced') as Personality;
 
   // Simple hand strength proxies
   const hole = bot.holeCards || [];
@@ -587,9 +616,14 @@ function decideAndApplyBotAction(state: TableState, botIndex: number): TableStat
     const rng = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
     const roundToBB = (x: number) => Math.max(bb * 2, Math.round(x) * bb);
 
-    // Difficulty personality toggles
+    // Difficulty toggles
     const easy = diff === 'Easy';
     const hard = diff === 'Hard';
+    // Personality toggles
+    const pAgg = personality === 'Aggressive' || personality === 'Maniac';
+    const pPassive = personality === 'Passive' || personality === 'Nit';
+    const pManiac = personality === 'Maniac';
+    const pNit = personality === 'Nit';
 
     // Stack rules
     const shortStack = botBB < 20;
@@ -630,12 +664,20 @@ function decideAndApplyBotAction(state: TableState, botIndex: number): TableStat
         if (latePosition) base -= 0.2;
         if (midStack) base += 0.1;
         if (deepStack) base += 0.2;
+        if (pAgg) base += 0.3;
+        if (pManiac) base += 0.6;
+        if (pPassive) base -= 0.2;
+        if (pNit) base -= 0.3;
         return Math.max(2.0, base);
       };
 
       // 3-bet sizing 2x-4x previous raise
       const reraiseToBB = (): number => {
-        const mult = rng(2.0, 4.0);
+        let mult = rng(2.0, 4.0);
+        if (pAgg) mult += 0.3;
+        if (pManiac) mult += 0.8;
+        if (pPassive) mult -= 0.3;
+        if (pNit) mult -= 0.6;
         const target = currentRaiseToBB * mult;
         return Math.max(currentRaiseToBB * 2.0, target);
       };
@@ -650,14 +692,25 @@ function decideAndApplyBotAction(state: TableState, botIndex: number): TableStat
           const raiseTo = easy ? roundToBB(2) : roundToBB(openRaiseToBB());
           return { kind: 'Raise', raiseTo };
         } else if (category === 'Speculative') {
-          // Call or fold; hard may mix in opens late
-          if (hard && latePosition && Math.random() < 0.25) {
+          // Limp/call versus blinds with some frequency; allow opens late more if aggressive personalities
+          const openFreq = (hard ? 0.25 : 0.12) + (pAgg ? 0.12 : 0) + (pManiac ? 0.2 : 0) - (pNit ? 0.1 : 0);
+          if (latePosition && Math.random() < Math.max(0, openFreq)) {
             const raiseTo = roundToBB(Math.max(2, openRaiseToBB() - 0.2));
             return { kind: 'Raise', raiseTo };
           }
+          // If we are just facing the blinds (no raise yet), allow a limp call with reasonable frequency
+          const limpFreq = (hard ? 0.45 : 0.35) + (pAgg ? 0.08 : 0) - (pNit ? 0.12 : 0);
+          if (toCall > 0 && toCall <= bb && Math.random() < Math.max(0.05, limpFreq)) {
+            return { kind: 'Call' };
+          }
           return toCall === 0 ? { kind: 'Call' } : { kind: 'Fold' };
         } else {
-          // Trash
+          // Trash: very occasionally steal from late position, otherwise fold
+          const stealFreq = (hard ? 0.06 : 0.03) + (pManiac ? 0.08 : 0) + (pAgg ? 0.03 : 0);
+          if (toCall === 0 && latePosition && Math.random() < stealFreq) {
+            const raiseTo = roundToBB(2);
+            return { kind: 'Raise', raiseTo };
+          }
           return { kind: 'Fold' };
         }
       } else {
@@ -669,7 +722,8 @@ function decideAndApplyBotAction(state: TableState, botIndex: number): TableStat
           return { kind: 'Raise', raiseTo };
         } else if (category === 'Good') {
           // Mix: Medium/Hard sometimes 3-bet; Easy mostly call
-          if (!easy && Math.random() < (hard ? 0.45 : 0.25)) {
+          const threeBetFreq = (hard ? 0.45 : 0.25) + (pAgg ? 0.12 : 0) + (pManiac ? 0.2 : 0) - (pPassive ? 0.08 : 0) - (pNit ? 0.12 : 0);
+          if (!easy && Math.random() < Math.max(0, threeBetFreq)) {
             const raiseTo = roundToBB(Math.max(currentRaiseToBB * 2.0, reraiseToBB() - (hard ? 0 : bb)));
             return { kind: 'Raise', raiseTo };
           }
@@ -677,13 +731,15 @@ function decideAndApplyBotAction(state: TableState, botIndex: number): TableStat
           if (potOdds <= 0.33 || latePosition) return { kind: 'Call' };
           return { kind: 'Fold' };
         } else if (category === 'Speculative') {
-          // Hard can occasionally 3-bet bluff in position
-          if (hard && latePosition && Math.random() < 0.15) {
+          // Occasionally 3-bet bluff in position, more with aggressive personalities
+          const bluff3BetFreq = (hard ? 0.15 : 0.05) + (pAgg ? 0.08 : 0) + (pManiac ? 0.15 : 0) - (pPassive ? 0.03 : 0) - (pNit ? 0.07 : 0);
+          if (latePosition && Math.random() < Math.max(0, bluff3BetFreq)) {
             const raiseTo = roundToBB(Math.max(currentRaiseToBB * 2.0, currentRaiseToBB * rng(2.0, 3.0)));
             return { kind: 'Raise', raiseTo };
           }
           // Otherwise call only with good odds and position
-          if (potOdds <= 0.22 && (latePosition || suited)) return { kind: 'Call' };
+          const callThresh = 0.22 + (pPassive ? 0.02 : 0) - (pManiac ? 0.02 : 0) - (pNit ? 0.02 : 0);
+          if (potOdds <= callThresh && (latePosition || suited)) return { kind: 'Call' };
           return { kind: 'Fold' };
         }
         // Trash facing a raise
@@ -702,7 +758,12 @@ function decideAndApplyBotAction(state: TableState, botIndex: number): TableStat
         actionLog: [...state.actionLog, { message: `${bot.name} folded`, time: new Date().toLocaleTimeString() }]
       };
       const activePlayers = newState.players.filter(p => !p.hasFolded);
-      if (activePlayers.length <= 1) return { ...newState, stage: 'Showdown' };
+      if (activePlayers.length <= 1) {
+        // Award pot to the last remaining player and transition to showdown
+        const winnerIndex = newState.players.findIndex(p => !p.hasFolded);
+        const awarded = awardPotToWinner(newState, winnerIndex, 'all others folded');
+        return { ...awarded, stage: 'Showdown' };
+      }
       return newState;
     }
 
@@ -800,6 +861,29 @@ function decideAndApplyBotAction(state: TableState, botIndex: number): TableStat
   // Adjust with position
   if (latePosition) baseRaiseChance += 0.07;
   else if (midPosition) baseRaiseChance += 0.03;
+
+  // Personality adjustments (postflop/general)
+  if (personality === 'Aggressive') {
+    baseRaiseChance += 0.1;
+    bluffChance += 0.05;
+    baseFoldChance = Math.max(0, baseFoldChance - 0.03);
+    raiseCapBB += 1;
+  } else if (personality === 'Passive') {
+    baseRaiseChance = Math.max(0, baseRaiseChance - 0.08);
+    bluffChance = Math.max(0, bluffChance - 0.05);
+    baseFoldChance += 0.05;
+    raiseCapBB = Math.max(2, raiseCapBB - 1);
+  } else if (personality === 'Maniac') {
+    baseRaiseChance += 0.2;
+    bluffChance += 0.12;
+    baseFoldChance = Math.max(0, baseFoldChance - 0.06);
+    raiseCapBB += 3;
+  } else if (personality === 'Nit') {
+    baseRaiseChance = Math.max(0, baseRaiseChance - 0.12);
+    bluffChance = Math.max(0, bluffChance - 0.08);
+    baseFoldChance += 0.08;
+    raiseCapBB = Math.max(2, raiseCapBB - 2);
+  }
 
   // Scale max raise by difficulty and stack
   const maxReasonableRaise = Math.min(state.bigBlind * raiseCapBB, bot.chips - toCall, Math.max(state.bigBlind * 2, Math.floor(state.pot * 0.9)));
@@ -899,7 +983,10 @@ function decideAndApplyBotAction(state: TableState, botIndex: number): TableStat
       };
       const activePlayers = newState.players.filter(p => !p.hasFolded);
       if (activePlayers.length <= 1) {
-        return { ...newState, stage: 'Showdown' };
+        // Award pot to the last remaining player and transition to showdown
+        const winnerIndex = newState.players.findIndex(p => !p.hasFolded);
+        const awarded = awardPotToWinner(newState, winnerIndex, 'all others folded');
+        return { ...awarded, stage: 'Showdown' };
       }
       return newState;
     }

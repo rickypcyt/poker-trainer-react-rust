@@ -65,6 +65,7 @@ export function adaptServerToClient(s: TableStateServer): TableState {
     },
     stage: s.stage,
     botPendingIndex: s.bot_pending_index ?? null,
+    botDecisionDueAt: s.bot_decision_due_at ?? null,
     difficulty: s.difficulty,
   } as TableState;
 }
@@ -77,5 +78,6 @@ export function uiDealConfigToServer(cfg: DealConfig) {
     num_bots: cfg.numBots,
     starting_chips: cfg.startingChips,
     difficulty: cfg.difficulty,
+    time_limit_seconds: cfg.timeLimitSeconds,
   } as const;
 }
