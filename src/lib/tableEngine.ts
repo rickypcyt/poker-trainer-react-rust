@@ -564,12 +564,51 @@ export function processNextAction(state: TableState): TableState {
 }
 
 // Decide and perform a bot's action immediately (used after UI 'thinking' delay)
-export function performBotActionNow(state: TableState): TableState {
+export async function performBotActionNow(state: TableState): Promise<TableState> {
   const botIndex = state.botPendingIndex ?? -1;
   if (botIndex < 0) return state;
-  const result = decideAndApplyBotAction(state, botIndex);
-  // Clear pending index and continue to next action chain
-  return processNextAction({ ...result, botPendingIndex: null });
+  
+  console.log(`[performBotActionNow] Processing bot action for player ${botIndex}`);
+  
+  try {
+    // Import the GPT bot service dynamically to avoid circular dependencies
+    const { gptBotService } = await import('./gptBotService');
+    
+    // Use the GPT bot service to make a decision
+    const botDecision = await gptBotService.makeDecision(state, botIndex);
+    console.log('[performBotActionNow] Bot decision:', botDecision);
+    
+    // Map the bot's decision to a game action
+    let result: TableState;
+    switch (botDecision.action) {
+      case 'fold':
+        result = heroFold(state);
+        break;
+      case 'check':
+      case 'call':
+        result = heroCall(state);
+        break;
+      case 'raise':
+      case 'allin': {
+        const raiseAmount = botDecision.amount || (state.currentBet * 2);
+        result = heroRaiseTo(state, raiseAmount);
+        break;
+      }
+      default:
+        console.warn(`[performBotActionNow] Unknown bot action: ${botDecision.action}, defaulting to call`);
+        result = heroCall(state);
+    }
+    
+    // Clear pending index and continue to next action chain
+    return processNextAction({ ...result, botPendingIndex: null });
+    
+  } catch (error) {
+    console.error('[performBotActionNow] Error getting bot decision:', error);
+    // Fall back to the original bot logic if there's an error
+    console.log('[performBotActionNow] Falling back to original bot logic');
+    const result = decideAndApplyBotAction(state, botIndex);
+    return processNextAction({ ...result, botPendingIndex: null });
+  }
 }
 
 // Core bot decision logic that adapts with difficulty

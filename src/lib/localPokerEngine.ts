@@ -50,16 +50,34 @@ export interface LogEntry {
   time: string;
 }
 
+export interface Player {
+  id: string;
+  chips: number;
+  current_bet: number;
+  hand: Card[];
+  isActive: boolean;
+  hasFolded: boolean;
+  isAllIn: boolean;
+}
+
 export interface GameState {
   game_id: string;
+  players: Player[];
+  currentPlayerIndex: number;
   player_hand: Card[];
   board: Card[];
+  communityCards: Card[];
   stage: GameStage;
   pot: number;
   current_bet: number;
   player_chips: number;
   logs: LogEntry[];
   hand_evaluation?: HandEvaluation;
+  smallBlind: number;
+  bigBlind: number;
+  dealerPosition: number;
+  smallBlindPosition: number;
+  bigBlindPosition: number;
 }
 
 export class LocalPokerEngine {
@@ -76,15 +94,33 @@ export class LocalPokerEngine {
   }
 
   private initialGameState(): GameState {
+    const initialPlayer = {
+      id: 'player-1',
+      chips: 1000,
+      current_bet: 0,
+      hand: [],
+      isActive: true,
+      hasFolded: false,
+      isAllIn: false,
+    };
+
     return {
       game_id: 'local-game',
+      players: [initialPlayer],
+      currentPlayerIndex: 0,
       player_hand: [],
       board: [],
+      communityCards: [],
       stage: 'Deal',
       pot: 0,
       current_bet: 0,
       player_chips: 1000,
       logs: [],
+      smallBlind: 10,
+      bigBlind: 20,
+      dealerPosition: 0,
+      smallBlindPosition: 0,
+      bigBlindPosition: 1,
     };
   }
 

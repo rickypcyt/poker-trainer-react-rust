@@ -1,4 +1,4 @@
-import { Card, GameState } from './localPokerEngine';
+import type { TableState } from '../types/table';
 
 export type BotAction = 'fold' | 'check' | 'call' | 'raise' | 'allin';
 
@@ -33,29 +33,47 @@ export class GPTBotService {
     ];
   }
 
-  private formatCards(cards: Card[]): string {
+  private formatCards(cards: Array<{rank: string, suit: string}>): string {
+    if (!cards) return 'No cards';
     return cards.map(card => `${card.rank} of ${card.suit}`).join(', ');
   }
 
-  private buildPrompt(gameState: GameState, playerIndex: number): string {
+  private buildPrompt(gameState: TableState, playerIndex: number): string {
     const player = gameState.players[playerIndex];
     const opponents = gameState.players.filter((_, i) => i !== playerIndex);
+    
+    // Safely access player's hand - using 'holeCards' instead of 'hand' to match the TableState type
+    const playerHand = 'holeCards' in player ? player.holeCards : [];
     
     return `Game State:
     - Stage: ${gameState.stage}
     - Pot: ${gameState.pot}
-    - Current bet to call: ${gameState.current_bet}
+    - Current bet to call: ${gameState.currentBet}
     - Your chips: ${player.chips}
-    - Your current bet: ${player.current_bet}
-    - Your hand: ${this.formatCards(player.hand)}
-    - Community cards: ${gameState.communityCards.length > 0 ? this.formatCards(gameState.communityCards) : 'None yet'}
-    - Opponents: ${opponents.length} (${opponents.map(o => `${o.chips} chips, ${o.current_bet} bet`).join('; ')})
+    - Your current bet: ${player.bet}
+    - Your hand: ${this.formatCards(playerHand || [])}
+    - Community cards: ${gameState.communityCards?.length > 0 ? this.formatCards(gameState.communityCards) : 'None yet'}
+    - Opponents: ${opponents.length} (${opponents.map(o => `${o.chips} chips, ${o.bet} bet`).join('; ')})
     
     Make your decision based on the current game state. Consider your position, stack sizes, pot odds, and hand strength.`;
   }
 
-  async makeDecision(gameState: GameState, playerIndex: number): Promise<BotDecision> {
+  async makeDecision(gameState: TableState, playerIndex: number): Promise<BotDecision> {
+    console.log(`[GPT Bot] Starting decision for player ${playerIndex} at ${new Date().toISOString()}`);
+    console.log(`[GPT Bot] Using model: ${this.model}`);
+    
     const prompt = this.buildPrompt(gameState, playerIndex);
+    console.log('[GPT Bot] Generated prompt:', prompt);
+    
+    const requestBody = {
+      model: this.model,
+      messages: [...this.context, { role: 'user', content: prompt }],
+      temperature: 0.7,
+      max_tokens: 500,
+    };
+
+    console.log('[GPT Bot] Sending request to OpenRouter API...');
+    const startTime = performance.now();
     
     try {
       const response = await fetch(this.baseUrl, {
@@ -63,42 +81,67 @@ export class GPTBotService {
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://github.com/yourusername/poker-trainer',
+          'X-Title': 'Poker Trainer Bot'
         },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [...this.context, { role: 'user', content: prompt }],
-          temperature: 0.7,
-          max_tokens: 500,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
+      const responseTime = performance.now() - startTime;
+      console.log(`[GPT Bot] API response received in ${responseTime.toFixed(2)}ms`);
+
       if (!response.ok) {
-        throw new Error(`API request failed with status ${response.status}`);
+        const errorText = await response.text();
+        console.error('[GPT Bot] API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
+        throw new Error(`API request failed with status ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('[GPT Bot] Raw API response:', data);
+      
       const content = data.choices[0]?.message?.content;
+      console.log('[GPT Bot] Raw content:', content);
       
       try {
         // Try to parse the JSON response
         const decision = JSON.parse(content);
-        return {
+        const result = {
           action: decision.action.toLowerCase(),
           amount: decision.amount,
           reasoning: decision.reasoning || 'No reasoning provided'
         };
-      } catch (e) {
+        console.log('[GPT Bot] Parsed decision:', result);
+        return result;
+      } catch (error) {
+        console.warn('[GPT Bot] Failed to parse JSON, trying to extract...', error);
         // If parsing fails, try to extract JSON from the response
-        const jsonMatch = content.match(/\{.*\}/s);
-        if (jsonMatch) {
-          const decision = JSON.parse(jsonMatch[0]);
-          return {
-            action: decision.action.toLowerCase(),
-            amount: decision.amount,
-            reasoning: decision.reasoning || 'No reasoning provided'
-          };
+        if (typeof content === 'string') {
+          const jsonMatch = content.match(/\{.*\}/s);
+          if (jsonMatch) {
+            try {
+              const decision = JSON.parse(jsonMatch[0]);
+              const result = {
+                action: decision.action?.toLowerCase() || 'check',
+                amount: decision.amount || 0,
+                reasoning: decision.reasoning || 'No reasoning provided (extracted)'
+              };
+              console.log('[GPT Bot] Extracted decision:', result);
+              return result;
+            } catch (extractError) {
+              console.error('[GPT Bot] Failed to extract JSON:', extractError);
+            }
+          }
         }
-        throw new Error('Could not parse bot response');
+        console.warn('[GPT Bot] Using fallback decision due to parsing error');
+        return {
+          action: 'check',
+          amount: 0,
+          reasoning: 'Fallback decision due to parsing error'
+        };
       }
     } catch (error) {
       console.error('Error making bot decision:', error);
@@ -107,9 +150,9 @@ export class GPTBotService {
     }
   }
 
-  private makeFallbackDecision(gameState: GameState, playerIndex: number): BotDecision {
+  private makeFallbackDecision(gameState: TableState, playerIndex: number): BotDecision {
     const player = gameState.players[playerIndex];
-    const toCall = gameState.current_bet - player.current_bet;
+    const toCall = gameState.currentBet - player.bet;
     
     // Simple fallback logic
     if (toCall > player.chips * 0.5) {
