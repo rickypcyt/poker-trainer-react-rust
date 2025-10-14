@@ -128,5 +128,8 @@ export class GPTBotService {
   }
 }
 
+// Get API key from Vite environment variables
+const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || '';
+
 // Singleton instance
-export const gptBotService = new GPTBotService(process.env.REACT_APP_OPENROUTER_API_KEY || '');
+export const gptBotService = new GPTBotService(OPENROUTER_API_KEY);
