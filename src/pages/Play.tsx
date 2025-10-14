@@ -99,6 +99,7 @@ const Play: React.FC = () => {
       bigBlind: GAME_CONFIG.bigBlind,
       numBots,
       startingChips,
+      initialChipStack: { 1: 5, 5: 5, 25: 5, 100: 5, 500: 5, 1000: 5 }, // Default chip distribution
       difficulty: cfgDifficulty,
       timeLimitSeconds: GAME_CONFIG.defaultTimeLimitSeconds,
     });
@@ -202,6 +203,7 @@ const Play: React.FC = () => {
       bigBlind: GAME_CONFIG.bigBlind,
       numBots: pendingNumBots,
       startingChips: pendingBuyIn,
+      initialChipStack: { 1: 5, 5: 5, 25: 5, 100: 5, 500: 5, 1000: 5 }, // Default chip distribution
       difficulty: pendingDifficulty,
       timeLimitSeconds: pendingTimeLimit,
     });
