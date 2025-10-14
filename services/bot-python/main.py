@@ -147,14 +147,14 @@ def choose_action(req: DecideRequest) -> DecideResponse:
 
     # Baselines
     odds = pot_odds(to_call, req.pot)
-    margin = 0.06  # base edge requirement
+    margin = 0.04  # base edge requirement (reduced from 0.06 for more aggressive play)
 
     # Difficulty tweaks
     diff = (req.bot.difficulty or 'Medium')
     if diff == 'Hard':
-        margin = 0.03
+        margin = 0.01  # harder bots are more aggressive
     elif diff == 'Easy':
-        margin = 0.09
+        margin = 0.08  # easier bots are more conservative but still play more hands
 
     # Personality: adjust aggression
     persona = (req.bot.personality or 'Balanced')
