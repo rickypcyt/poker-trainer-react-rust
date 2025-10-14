@@ -1,57 +1,37 @@
-import React, { useState, useEffect, useRef } from 'react';
-
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from '../components/Navbar';
 import PokerCard from '../components/PokerCard';
-import pokerService, { type GameState, type PlayerAction, type Card } from '../lib/pokerService';
+import localPokerService, { type GameState, type PlayerAction, type Card } from '../lib/localPokerService';
 
 const SoloTraining: React.FC = () => {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const logContainerRef = useRef<HTMLDivElement | null>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
 
   // Helper function to check if a card should be highlighted
-  const isCardHighlighted = (card: Card): boolean => {
-    const highlighted = gameState?.hand_evaluation?.highlighted_cards as Array<Partial<Card>> | undefined;
-    if (!highlighted || highlighted.length === 0) return false;
-    return highlighted.some((hc: Partial<Card>) => {
-      const hcRank = (hc.rank ?? '').toString().toUpperCase();
-      const hcSuit = hc.suit ? hc.suit.toString().toUpperCase() : undefined;
-      const cardRank = (card.rank ?? '').toString().toUpperCase();
-      const cardSuit = (card.suit ?? '').toString().toUpperCase();
-      const rankMatch = hcRank !== '' && hcRank === cardRank;
-      // If suit is provided by backend, require both rank and suit to match.
-      // If suit is omitted, match by rank only (helps for pairs/sets where suit may be irrelevant).
-      return hcSuit ? (rankMatch && hcSuit === cardSuit) : rankMatch;
-    });
-  };
+  const isCardHighlighted = useCallback((card: Card): boolean => {
+    if (!gameState?.hand_evaluation?.highlighted_cards) return false;
+    
+    return gameState.hand_evaluation.highlighted_cards.some(highlightedCard => 
+      highlightedCard.rank === card.rank && highlightedCard.suit === card.suit
+    );
+  }, [gameState]);
 
-  const shouldShowWinner = (stage: string): boolean => {
+  const shouldShowWinner = useCallback((stage: string): boolean => {
     return stage === 'Showdown' || stage === 'GameOver';
-  };
-
-  const shouldShowBoard = (stage: string): boolean => {
-    return stage === 'Flop' || stage === 'Turn' || stage === 'River' || stage === 'Showdown';
-  };
-
-  // Initialize game on component mount
-  useEffect(() => {
-    initializeGame();
   }, []);
 
-  // Auto-scroll logs to bottom
-  useEffect(() => {
-    const el = logContainerRef.current;
-    if (el) {
-      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-    }
-  }, [gameState?.logs]);
+  const shouldShowBoard = useCallback((stage: string): boolean => {
+    return stage === 'Flop' || stage === 'Turn' || stage === 'River' || stage === 'Showdown';
+  }, []);
 
-  const initializeGame = async () => {
+  // Initialize game function
+  const initializeGame = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const newGame = await pokerService.createGame();
+      const newGame = await localPokerService.createGame();
       setGameState({
         ...newGame,
         hand_evaluation: shouldShowWinner(newGame.stage) ? newGame.hand_evaluation : undefined,
@@ -61,15 +41,28 @@ const SoloTraining: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [shouldShowWinner]);
 
-  const handlePlayerAction = async (action: PlayerAction) => {
+  // Initialize game on component mount
+  useEffect(() => {
+    initializeGame();
+  }, [initializeGame]);
+
+  // Auto-scroll logs to bottom
+  useEffect(() => {
+    const el = logContainerRef.current;
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    }
+  }, [gameState?.logs]);
+
+  const handlePlayerAction = async (action: PlayerAction, amount: number = 0) => {
     if (!gameState) return;
 
     try {
       setLoading(true);
       setError(null);
-      const updatedGame = await pokerService.playerAction(gameState.game_id, action);
+      const updatedGame = await localPokerService.playerAction(gameState.game_id, action, amount);
       setGameState(updatedGame);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to process action');
@@ -84,15 +77,10 @@ const SoloTraining: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      // Optimistically clear any previous evaluation/logs to avoid visual carry-over
-      setGameState(prev => prev ? { ...prev, hand_evaluation: undefined, logs: [] } : prev);
-
-      const resetGame = await pokerService.resetGame(gameState.game_id);
-      // Ensure winner only shows at showdown/game over
+      const resetGame = await localPokerService.resetGame(gameState.game_id);
       setGameState({
         ...resetGame,
         hand_evaluation: shouldShowWinner(resetGame.stage) ? resetGame.hand_evaluation : undefined,
-        logs: resetGame.logs ?? [],
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reset game');
@@ -281,7 +269,7 @@ const SoloTraining: React.FC = () => {
               <div className="bg-neutral-900/60 bg-gradient-to-r from-green-500/10 to-teal-500/10 border border-green-400/20 rounded-xl p-6 mb-6">
               <h3 className="text-white font-semibold mb-4 text-center text-lg">Your Hand</h3>
               <div className="flex justify-center gap-4">
-                {gameState.hole_cards.map((card, idx) => (
+                {gameState.player_hand.map((card: Card, idx: number) => (
                   <div key={`hole-${idx}`} className="flex flex-col items-center">
                     <PokerCard 
                       suit={card.suit} 
@@ -293,56 +281,6 @@ const SoloTraining: React.FC = () => {
                 ))}
               </div>
               </div>
-
-              {/* Burned Cards - What Would Have Been */}
-              {gameState.burned_cards && gameState.burned_cards.length > 0 && (
-                <div className="bg-gradient-to-r from-red-500/20 to-pink-500/20 border border-red-400/30 rounded-xl p-6 mb-6">
-                <h3 className="text-white font-semibold mb-4 text-center text-lg">Burned Cards (What Would Have Been)</h3>
-                <div className="flex justify-center gap-4">
-                  {/* Flop burn cards */}
-                  {gameState.burned_cards.length >= 3 && (
-                    <>
-                      {gameState.burned_cards.slice(0, 3).map((card, idx) => (
-                        <div key={`flop-burn-${idx}`} className="flex flex-col items-center">
-                          <PokerCard 
-                            suit={card.suit} 
-                            rank={card.rank} 
-                            isShuffling={isShuffling} 
-                          />
-                          <span className="text-white/70 text-base mt-2 font-medium">Flop Burn</span>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                  
-                  {/* Turn burn card */}
-                  {gameState.burned_cards.length >= 4 && (
-                    <div className="flex flex-col items-center">
-                      <PokerCard 
-                        suit={gameState.burned_cards[3].suit} 
-                        rank={gameState.burned_cards[3].rank} 
-                        isShuffling={isShuffling} 
-                      />
-                      <span className="text-white/70 text-base mt-2 font-medium">Turn Burn</span>
-                    </div>
-                  )}
-                  
-                  {/* River burn card */}
-                  {gameState.burned_cards.length >= 5 && (
-                    <div className="flex flex-col items-center">
-                      <PokerCard 
-                        suit={gameState.burned_cards[4].suit} 
-                        rank={gameState.burned_cards[4].rank} 
-                        isShuffling={isShuffling} 
-                      />
-                      <span className="text-white/70 text-base mt-2 font-medium">River Burn</span>
-                    </div>
-                  )}
-                </div>
-                </div>
-              )}
-
-              
 
               {/* Action Buttons */}
               <div className={`flex items-center justify-center gap-4 mb-6 ${isPreflop ? 'min-h-[30vh] flex-col sm:flex-row' : ''}`}>
@@ -381,7 +319,7 @@ const SoloTraining: React.FC = () => {
                   </div>
                   <div className="flex flex-col">
                     <span className="text-base text-white/60">Deck</span>
-                    <span className="font-semibold text-white">{gameState.deck.length}</span>
+                    <span className="font-semibold text-white">{gameState.deck?.length ?? 0}</span>
                   </div>
                 </div>
               </div>
