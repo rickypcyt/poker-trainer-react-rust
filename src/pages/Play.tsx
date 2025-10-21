@@ -2,20 +2,19 @@ import { CHIP_COLOR_CLASS, CHIP_DENOMS } from '../constants/chips';
 import type { Difficulty, Player, TableState } from '../types/table';
 import {
   createInitialTable,
+  heroCall,
+  heroFold,
+  heroRaiseTo,
+  performBotActionNow,
   performDealerDraw,
   revealDealerDraw as revealDealerDrawEngine,
   startNewHand,
-  heroFold,
-  heroCall,
-  heroRaiseTo,
-  performBotActionNow,
 } from '../lib/tableEngine';
 
 import ChipStack from '../components/ChipStack';
 import Dealer from '../components/Dealer';
 import LogsModal from '../components/LogsModal';
 import Navbar from '../components/Navbar';
-
 import PlayerSeat from '../components/PlayerSeat';
 import PokerCard from '../components/PokerCard';
 import React from 'react';
@@ -31,7 +30,6 @@ const GAME_CONFIG = {
   numBots: 2, // 2 bots + 1 human = 3 players total
   startingChips: 5000, // $5,000 starting stack
   chipDenominations: [1, 5, 25, 100, 500, 1000] as const,
-  defaultTimeLimitSeconds: 15 as const,
 };
 
 const Play: React.FC = () => {
@@ -67,7 +65,12 @@ const Play: React.FC = () => {
     if (savedTable) {
       try {
         const parsed = JSON.parse(savedTable);
-        return parsed;
+        // Validate that the parsed table has the required structure
+        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.players)) {
+          return parsed;
+        } else {
+          console.warn('Saved table has invalid structure, starting new table');
+        }
       } catch (e) {
         console.warn('Failed to parse saved table, starting new table', e);
       }
@@ -101,19 +104,18 @@ const Play: React.FC = () => {
       startingChips,
       initialChipStack: { 1: 5, 5: 5, 25: 5, 100: 5, 500: 5, 1000: 5 }, // Default chip distribution
       difficulty: cfgDifficulty,
-      timeLimitSeconds: GAME_CONFIG.defaultTimeLimitSeconds,
     });
     return t;
   });
   // No server id when using local engine
   // Local helpers replacing former tableEngine utilities, backed by server state
   const getHeroIndex = React.useCallback((t: TableState) => {
-    return t.players.findIndex(p => p.isHero);
+    return t?.players?.findIndex(p => p.isHero) ?? -1;
   }, []);
   const maxBet = React.useCallback((t: TableState) => {
     // Prefer server-provided currentBet, fallback to max player bet
     const byField = typeof t.currentBet === 'number' ? t.currentBet : 0;
-    const byPlayers = t.players.length ? Math.max(...t.players.map(p => p.bet || 0)) : 0;
+    const byPlayers = t?.players?.length ? Math.max(...t.players.map(p => p.bet || 0)) : 0;
     return Math.max(byField, byPlayers);
   }, []);
   // Reveal winner of Dealer Draw using frontend engine (single-card reveal with tie-breaker by suit)
@@ -123,14 +125,14 @@ const Play: React.FC = () => {
 
   // When entering DealerDraw, auto-draw exactly ONE card per player if not already drawn
   React.useEffect(() => {
-    if (table.dealerDrawInProgress && !table.dealerDrawRevealed) {
+    if (table?.dealerDrawInProgress && !table?.dealerDrawRevealed && table?.players?.length) {
       const cards = table.dealerDrawCards || {};
       const needsCards = Object.keys(cards).length === 0 || Object.values(cards).some((c) => c == null);
       if (needsCards) {
         setTable((prev: TableState) => performDealerDraw(prev));
       }
     }
-  }, [table.dealerDrawInProgress, table.dealerDrawRevealed, table.dealerDrawCards, table.players.length]);
+  }, [table?.dealerDrawInProgress, table?.dealerDrawRevealed, table?.dealerDrawCards, table?.players?.length]);
 
   // Pending setup values (used only when showSetup is true)
   const [pendingNumBots, setPendingNumBots] = React.useState<number>(() => {
@@ -171,30 +173,11 @@ const Play: React.FC = () => {
     } catch { /* ignore */ }
     return GAME_CONFIG.startingChips;
   });
-  const timeLimitOptions = [10, 15, 20, 30, 45, 60] as const;
-  const [pendingTimeLimit, setPendingTimeLimit] = React.useState<number>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const cfg = localStorage.getItem('poker_trainer_config');
-        if (cfg) {
-          const parsed = JSON.parse(cfg);
-          if (typeof parsed.timeLimitSeconds === 'number') return parsed.timeLimitSeconds;
-        }
-      }
-    } catch { /* ignore */ }
-    return GAME_CONFIG.defaultTimeLimitSeconds;
-  });
-  // Active time limit used by the session for bot thinking
-  const [timeLimitSeconds, setTimeLimitSeconds] = React.useState<number>(pendingTimeLimit);
-  // Bot thinking timer tracking
-  const botDeadlineRef = React.useRef<number | null>(null);
-  const botTotalDelayRef = React.useRef<number>(0);
-  const [botTimeLeftMs, setBotTimeLeftMs] = React.useState<number>(0);
 
   const startGameFromSetup = () => {
     // Persist chosen config
     try {
-      localStorage.setItem('poker_trainer_config', JSON.stringify({ numBots: pendingNumBots, startingChips: pendingBuyIn, timeLimitSeconds: pendingTimeLimit, difficulty: pendingDifficulty }));
+      localStorage.setItem('poker_trainer_config', JSON.stringify({ numBots: pendingNumBots, startingChips: pendingBuyIn, difficulty: pendingDifficulty }));
       localStorage.removeItem('poker_trainer_table');
     } catch { /* ignore */ }
     // Create a fresh local table using engine
@@ -205,12 +188,10 @@ const Play: React.FC = () => {
       startingChips: pendingBuyIn,
       initialChipStack: { 1: 5, 5: 5, 25: 5, 100: 5, 500: 5, 1000: 5 }, // Default chip distribution
       difficulty: pendingDifficulty,
-      timeLimitSeconds: pendingTimeLimit,
     });
     setReveal(false);
     setTable(t);
     setShowSetup(false);
-    setTimeLimitSeconds(pendingTimeLimit);
   };
   const [reveal, setReveal] = React.useState(false);
   const [isDealing] = React.useState(false);
@@ -304,7 +285,7 @@ const Play: React.FC = () => {
     const match = msg.match(/^(.*?)\s+(raised to|called|checked|folded)(?:\s+([0-9]+))?/i);
     if (!match) return;
     const [, name, action, amount] = match;
-    const player = table.players.find((p: Player) => (p.isHero ? 'You' : p.name) === name);
+    const player = table?.players?.find((p: Player) => (p.isHero ? 'You' : p.name) === name);
     if (!player) return;
     let text = '';
     if (action.toLowerCase().startsWith('raised')) text = amount ? `Raise to ${amount}` : 'Raise';
@@ -324,21 +305,11 @@ const Play: React.FC = () => {
     return () => clearTimeout(tid);
   }, [table.actionLog, table.players]);
 
-  // Bot thinking: when a bot is pending, wait locally then perform the action (external service if configured)
+  // Bot thinking: when a bot is pending, perform the action immediately
   React.useEffect(() => {
-    const hardCapMs = Math.max(200, (timeLimitSeconds ?? GAME_CONFIG.defaultTimeLimitSeconds) * 1000);
     if (table.botPendingIndex == null) {
-      botDeadlineRef.current = null;
-      botTotalDelayRef.current = 0;
-      setBotTimeLeftMs(0);
       return;
     }
-    // Respect exact time limit chosen in game settings
-    const chosenDelayMs = hardCapMs;
-    const deadline = Date.now() + chosenDelayMs;
-    botDeadlineRef.current = deadline;
-    botTotalDelayRef.current = chosenDelayMs;
-    setBotTimeLeftMs(chosenDelayMs);
 
     // Bot decision handling is now done locally through the table engine
     const botIndex = table.botPendingIndex;
@@ -346,35 +317,15 @@ const Play: React.FC = () => {
       console.log(`[Bot] Processing bot move for player ${botIndex}`);
     }
 
-    const interval = setInterval(() => {
-      const left = Math.max(0, deadline - Date.now());
-      setBotTimeLeftMs(left);
-    }, 100);
-    
-    const to = setTimeout(() => {
-      setTable(async (prev: TableState) => {
-        // Use local engine decision
-        const next = await performBotActionNow(prev);
-        if (next.stage === 'Showdown') setReveal(true);
-        return next;
-      });
-    }, chosenDelayMs);
-    return () => { clearInterval(interval); clearTimeout(to); };
-  }, [table.botPendingIndex, timeLimitSeconds]);
+    // Perform bot action immediately without delay
+    setTable(async (prev: TableState) => {
+      // Use local engine decision
+      const next = await performBotActionNow(prev);
+      if (next.stage === 'Showdown') setReveal(true);
+      return next;
+    });
+  }, [table.botPendingIndex]);
 
-  // Countdown updater for bot thinking overlay
-  React.useEffect(() => {
-    if (table.botPendingIndex == null || !botDeadlineRef.current) {
-      setBotTimeLeftMs(0);
-      return;
-    }
-    const i = setInterval(() => {
-      if (!botDeadlineRef.current) return;
-      const left = Math.max(0, botDeadlineRef.current - Date.now());
-      setBotTimeLeftMs(left);
-    }, 100);
-    return () => clearInterval(i);
-  }, [table.botPendingIndex, table.botDecisionDueAt]);
 
   // Animate chips to pot when pot increases
   React.useEffect(() => {
@@ -660,24 +611,6 @@ const Play: React.FC = () => {
                   ))}
                 </div>
               </div>
-              {/* Time limit selector */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-white/80 text-base">Time Limit (AI)</label>
-                  <span className="text-white font-semibold">{pendingTimeLimit}s</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {timeLimitOptions.map((sec) => (
-                    <button
-                      key={sec}
-                      onClick={() => setPendingTimeLimit(sec)}
-                      className={`px-3 py-1.5 rounded-lg border text-base transition-colors ${pendingTimeLimit === sec ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'}`}
-                    >
-                      {sec}s
-                    </button>
-                  ))}
-                </div>
-              </div>
               {/* Start at bottom */}
               <div className="pt-3">
                 <button
@@ -863,7 +796,7 @@ const Play: React.FC = () => {
 
 
         {/* Hero bottom center */}
-        {players.filter(p => p.isHero).map(p => (
+        {players.filter((p: Player) => p.isHero).map((p: Player) => (
           <div key={p.id} className="absolute left-1/2 bottom-2 -translate-x-1/2">
             <PlayerSeat
               player={p}
@@ -919,29 +852,6 @@ const Play: React.FC = () => {
         
         
       </div>
-      {/* Bot time limit overlay */}
-      {table.botPendingIndex != null && botTotalDelayRef.current > 0 && (
-        <div className="pointer-events-none fixed z-[70] top-20 right-5 bg-black/70 text-white px-3 py-2 rounded-lg shadow border border-white/20">
-          {(() => {
-            const idx = table.botPendingIndex as number;
-            const actor = table.players[idx];
-            const secs = Math.max(0, botTimeLeftMs) / 1000;
-            const pct = Math.max(0, Math.min(1, botTotalDelayRef.current ? (1 - botTimeLeftMs / botTotalDelayRef.current) : 0));
-            return (
-              <div className="min-w-[180px]">
-                <div className="text-base font-semibold mb-1 flex items-center gap-2">
-                  <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-                  Thinking: {actor?.isHero ? 'You' : actor?.name}
-                </div>
-                <div className="text-xs opacity-80 mb-1">Time left: {secs.toFixed(1)}s</div>
-                <div className="h-2 w-full bg-white/15 rounded">
-                  <div className="h-full bg-yellow-400 rounded" style={{ width: `${pct * 100}%` }} />
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
 
       {/* Flying chips overlay (fixed to viewport for smooth animation) */}
       {flyingChips.map((c) => (

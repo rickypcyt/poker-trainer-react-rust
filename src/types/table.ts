@@ -78,7 +78,6 @@ export interface DealConfig {
   startingChips: number;
   initialChipStack?: ChipStack;
   difficulty?: Difficulty;
-  timeLimitSeconds?: number;
 }
 
 export interface ActionLogEntry {

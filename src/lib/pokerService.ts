@@ -276,7 +276,6 @@ export interface TableConfigRequest {
   num_bots: number; // 0..10
   starting_chips: number;
   difficulty?: 'Easy' | 'Medium' | 'Hard';
-  time_limit_seconds?: number;
 }
 
 export interface TableStateServer {

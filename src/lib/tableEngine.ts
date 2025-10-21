@@ -1,4 +1,4 @@
-import type { ChipStack, DealConfig, Difficulty, Player, Personality, TableState } from '../types/table';
+import type { ChipStack, DealConfig, Difficulty, Personality, Player, TableState } from '../types/table';
 
 import type { Card } from './pokerService';
 import type { DeckCard } from '../types/cards';

@@ -55,7 +55,10 @@ export class GPTBotService {
     - Community cards: ${gameState.communityCards?.length > 0 ? this.formatCards(gameState.communityCards) : 'None yet'}
     - Opponents: ${opponents.length} (${opponents.map(o => `${o.chips} chips, ${o.bet} bet`).join('; ')})
     
-    Make your decision based on the current game state. Consider your position, stack sizes, pot odds, and hand strength.`;
+    Respond with ONLY a valid JSON object in this exact format:
+    {"action": "fold|call|raise|allin", "amount": number, "reasoning": "brief explanation"}
+    
+    Do not include any other text before or after the JSON.`;
   }
 
   async makeDecision(gameState: TableState, playerIndex: number): Promise<BotDecision> {
@@ -120,19 +123,31 @@ export class GPTBotService {
         console.warn('[GPT Bot] Failed to parse JSON, trying to extract...', error);
         // If parsing fails, try to extract JSON from the response
         if (typeof content === 'string') {
-          const jsonMatch = content.match(/\{.*\}/s);
-          if (jsonMatch) {
-            try {
-              const decision = JSON.parse(jsonMatch[0]);
-              const result = {
-                action: decision.action?.toLowerCase() || 'check',
-                amount: decision.amount || 0,
-                reasoning: decision.reasoning || 'No reasoning provided (extracted)'
-              };
-              console.log('[GPT Bot] Extracted decision:', result);
-              return result;
-            } catch (extractError) {
-              console.error('[GPT Bot] Failed to extract JSON:', extractError);
+          // Try multiple patterns to find JSON
+          const patterns = [
+            /\{[\s\S]*\}/,  // Basic JSON object
+            /\{.*?"action"[\s\S]*?\}/,  // JSON with action field
+            /\{.*?"action".*?\}/s  // JSON with action field (multiline)
+          ];
+          
+          for (const pattern of patterns) {
+            const jsonMatch = content.match(pattern);
+            if (jsonMatch) {
+              try {
+                const decision = JSON.parse(jsonMatch[0]);
+                if (decision.action && typeof decision.action === 'string') {
+                  const result = {
+                    action: decision.action.toLowerCase(),
+                    amount: decision.amount || 0,
+                    reasoning: decision.reasoning || 'No reasoning provided (extracted)'
+                  };
+                  console.log('[GPT Bot] Extracted decision:', result);
+                  return result;
+                }
+              } catch (extractError) {
+                console.warn('[GPT Bot] Failed to parse extracted JSON:', extractError);
+                continue; // Try next pattern
+              }
             }
           }
         }

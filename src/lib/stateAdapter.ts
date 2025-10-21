@@ -1,5 +1,5 @@
-import type { TableState, Player as UiPlayer, ChipStack, DealConfig } from '../types/table';
-import type { TableStateServer, TablePlayer, TableLogEntry, Card } from './pokerService';
+import type { Card, TableLogEntry, TablePlayer, TableStateServer } from './pokerService';
+import type { ChipStack, DealConfig, TableState, Player as UiPlayer } from '../types/table';
 
 // Map server player to UI player
 function mapPlayer(p: TablePlayer): UiPlayer {
@@ -78,6 +78,5 @@ export function uiDealConfigToServer(cfg: DealConfig) {
     num_bots: cfg.numBots,
     starting_chips: cfg.startingChips,
     difficulty: cfg.difficulty,
-    time_limit_seconds: cfg.timeLimitSeconds,
   } as const;
 }
