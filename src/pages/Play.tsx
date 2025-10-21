@@ -213,13 +213,15 @@ const Play: React.FC = () => {
     if (lastModalHandRef.current === table.handNumber) return;
     // Try to find the latest winner in the actionLog
     let heroWon = false;
-    for (let i = table.actionLog.length - 1; i >= 0; i -= 1) {
-      const msg = table.actionLog[i].message || '';
-      const m = msg.match(/^(.*?)\s+wins the pot/i);
-      if (m) {
-        const name = m[1];
-        heroWon = (name === 'You');
-        break;
+    if (table.actionLog && table.actionLog.length > 0) {
+      for (let i = table.actionLog.length - 1; i >= 0; i -= 1) {
+        const msg = table.actionLog[i].message || '';
+        const m = msg.match(/^(.*?)\s+wins the pot/i);
+        if (m) {
+          const name = m[1];
+          heroWon = (name === 'You');
+          break;
+        }
       }
     }
     setEndModalResult(heroWon ? 'won' : 'lost');
@@ -237,7 +239,7 @@ const Play: React.FC = () => {
 
   // Show toast for EVERY new log entry; use toastShown flag to avoid duplicates
   React.useEffect(() => {
-    if (table.actionLog.length === 0) return;
+    if (!table?.actionLog || table.actionLog.length === 0) return;
     const lastIndex = table.actionLog.length - 1;
     const lastEntry = table.actionLog[lastIndex];
 
@@ -264,7 +266,7 @@ const Play: React.FC = () => {
 
   // Track hero wins ("Play" wins) in localStorage when an actionLog says You wins the pot
   React.useEffect(() => {
-    if (table.actionLog.length === 0) return;
+    if (!table?.actionLog || table.actionLog.length === 0) return;
     const last = table.actionLog[table.actionLog.length - 1];
     // Expect format "You wins the pot $<amount>" or "You wins the pot $<amount> (reason)"
     if (/^You\s+wins the pot\s+\$/.test(last.message)) {
@@ -278,7 +280,7 @@ const Play: React.FC = () => {
 
   // Mini action bubbles near players: derive from last actionLog
   React.useEffect(() => {
-    if (table.actionLog.length === 0) return;
+    if (!table?.actionLog || table.actionLog.length === 0) return;
     const last = table.actionLog[table.actionLog.length - 1];
     const msg = last.message;
     // Expected formats: "<Name> raised to X", "<Name> called Y", "<Name> checked", "<Name> folded"
@@ -330,7 +332,7 @@ const Play: React.FC = () => {
   // Animate chips to pot when pot increases
   React.useEffect(() => {
     const prevPot = prevPotRef.current;
-    if (table.pot > prevPot) {
+    if ((table.pot || 0) > prevPot && table.actionLog && table.actionLog.length > 0) {
       const last = table.actionLog[table.actionLog.length - 1];
       // Identify the actor: raised or called
       let actorName: string | null = null;
@@ -338,7 +340,7 @@ const Play: React.FC = () => {
         const m = last.message.match(/^(.*?)\s+(raised to|called)/i);
         if (m) actorName = m[1];
       }
-      const actor = table.players.find((p: Player) => (p.isHero ? 'You' : p.name) === actorName) || null;
+      const actor = table.players?.find((p: Player) => (p.isHero ? 'You' : p.name) === actorName) || null;
       const sourceEl = actor ? chipAnchorsRef.current[actor.id] : null;
       // Animate towards the Dealer (requested):
       const targetEl = dealerRef.current;
@@ -346,7 +348,7 @@ const Play: React.FC = () => {
         const s = sourceEl.getBoundingClientRect();
         const t = targetEl.getBoundingClientRect();
         // Choose a color based on a denom close to delta
-        const delta = table.pot - prevPot;
+        const delta = (table.pot || 0) - prevPot;
         let denom: number = CHIP_DENOMS[0] as number;
         for (const d of [...CHIP_DENOMS].sort((a, b) => Number(b) - Number(a))) {
           if (delta >= d) { denom = d; break; }
@@ -361,7 +363,7 @@ const Play: React.FC = () => {
         }, 800);
       }
     }
-    prevPotRef.current = table.pot;
+    prevPotRef.current = table.pot || 0;
   }, [table.pot, table.actionLog, table.players]);
 
   // Use exact pot breakdown tracked by the engine
@@ -378,7 +380,7 @@ const Play: React.FC = () => {
       try {
         const winnerIdx = table.dealingState?.highCardPlayerIndex ?? table.dealerIndex;
         if (winnerIdx != null && winnerIdx >= 0) {
-          const winner = table.players[winnerIdx];
+          const winner = table.players?.[winnerIdx];
           const winnerCard = table.dealerDrawCards[winner.id];
           if (winner && winnerCard) {
             toast.success(`${winner.name} wins the dealer button (high card ${winnerCard.rank} of ${winnerCard.suit})`);
@@ -438,10 +440,10 @@ const Play: React.FC = () => {
   };
 
   const handlePlayerAction = (action: 'Fold' | 'Call' | 'Raise') => {
-    const hero = table.players.find((p: Player) => p.isHero);
+    const hero = table.players?.find((p: Player) => p.isHero);
     if (!hero) return;
     // If not hero's turn or already showdown, ignore
-    if (table.stage === 'Showdown' || table.players.indexOf(hero) !== table.currentPlayerIndex) return;
+    if (table.stage === 'Showdown' || table.players?.indexOf(hero) !== table.currentPlayerIndex) return;
 
     try {
       let next: TableState = table;
@@ -451,7 +453,7 @@ const Play: React.FC = () => {
         next = heroCall(table);
       } else if (action === 'Raise') {
         // Simple: raise to 3x big blind or all-in cap
-        const raiseTo = Math.min(table.pot + table.bigBlind * 3, hero.chips + hero.bet);
+        const raiseTo = Math.min((table.pot || 0) + (table.bigBlind || 0) * 3, hero.chips + hero.bet);
         next = heroRaiseTo(table, raiseTo);
       }
       setTable(next);
@@ -462,7 +464,7 @@ const Play: React.FC = () => {
   };
 
   const { players, dealerIndex, smallBlindIndex, bigBlindIndex } = table;
-  const bots = players.filter((p: Player) => !p.isHero);
+  const bots = players?.filter((p: Player) => !p.isHero) || [];
   // Compute bot positions on a ring (percentage-based) avoiding:
   // - bottom-center overlap with the hero
   // - top-center overlap with the dealer
@@ -504,6 +506,15 @@ const Play: React.FC = () => {
 
   // Note: animateDeal function was removed as it was not being used
   // and the card dealing animation is handled by the table engine
+
+  // Safety check: if table is in invalid state, show loading or error
+  if (!table || !table.players || !Array.isArray(table.players)) {
+    return (
+      <div className="min-h-screen bg-green-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading game...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-800 via-green-700 to-green-900">
@@ -679,26 +690,26 @@ const Play: React.FC = () => {
             <div className="flex flex-row flex-wrap gap-2 items-stretch">
               <button 
                 className={`font-semibold px-4 py-2 rounded-md flex-1 min-w-[120px] transition-colors shadow-md ${
-                  table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
+                  table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
                     ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                     : 'bg-red-700 hover:bg-red-600 text-white'
                 }`}
                 onClick={() => handlePlayerAction('Fold')}
-                disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
+                disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
               >
                 Fold
               </button>
               <button 
                 className={`font-semibold px-4 py-2 rounded-md flex-1 min-w-[140px] transition-colors shadow-md ${
-                  table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
+                  table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
                     ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                     : 'bg-blue-700 hover:bg-blue-600 text-white'
                 }`}
                 onClick={() => handlePlayerAction('Call')}
-                disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
+                disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
               >
                 {(() => {
-                  const hero = table.players[getHeroIndex(table)];
+                  const hero = table.players?.[getHeroIndex(table)];
                   const toCall = Math.max(0, maxBet(table) - (hero?.bet || 0));
                   if (toCall === 0) return 'Check';
                   if (toCall >= (hero?.chips || 0)) return `All-in $${hero?.chips}`;
@@ -707,17 +718,17 @@ const Play: React.FC = () => {
               </button>
               <button 
                 className={`font-semibold px-6 py-2 rounded-md flex-1 min-w-[160px] transition-colors shadow-md ${
-                  table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
+                  table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
                     ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                     : 'bg-yellow-600 hover:bg-yellow-500 text-white'
                 }`}
                 onClick={() => handlePlayerAction('Raise')}
-                disabled={table.players[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
+                disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
               >
                 {(() => {
-                  const hero = table.players[getHeroIndex(table)];
+                  const hero = table.players?.[getHeroIndex(table)];
                   const toCall = Math.max(0, maxBet(table) - (hero?.bet || 0));
-                  const minRaise = Math.max(table.bigBlind, maxBet(table) * 2 - (hero?.bet || 0));
+                  const minRaise = Math.max(table.bigBlind || 0, maxBet(table) * 2 - (hero?.bet || 0));
                   if ((hero?.chips || 0) <= toCall) return 'All-in';
                   if (toCall > 0) return `Raise to $${minRaise}`;
                   return `Raise $${minRaise}`;
@@ -728,7 +739,7 @@ const Play: React.FC = () => {
           
           <div className="text-white/90 text-center text-base mt-3 font-medium">
             <div className="bg-gray-800/80 py-1 px-2 rounded">
-              <span className="text-yellow-400 ml-1">{table.stage}</span>
+              <span className="text-yellow-400 ml-1">{table.stage || 'Unknown'}</span>
             </div>
           </div>
         </div>
@@ -754,7 +765,7 @@ const Play: React.FC = () => {
             <div className="absolute inset-0">  
               {/* Pot display - absolute so it doesn't affect vertical centering of the board */}
               <div ref={potRef} className="absolute left-1/2 -translate-x-1/2 top-10 md:top-12 bg-black/80 text-white text-base md:text-2xl font-bold px-4 md:px-6 py-1.5 md:py-2 rounded-full border border-amber-100/20 shadow-md z-10">
-                <span className="text-amber-100 font-mono">POT:</span> <span className="text-xl md:text-3xl text-yellow-300 font-mono">${table.pot.toLocaleString()}</span>
+                <span className="text-amber-100 font-mono">POT:</span> <span className="text-xl md:text-3xl text-yellow-300 font-mono">${(table.pot || 0).toLocaleString()}</span>
               </div>
 
               {/* Pot chip stack visualization */}
@@ -771,12 +782,12 @@ const Play: React.FC = () => {
                     <div
                       key={i}
                       className={`relative aspect-[0.7] rounded-lg ${
-                        i < table.board.length
+                        i < (table.board?.length || 0)
                           ? 'bg-white shadow-lg hover:scale-[1.02] hover:z-10 transition-transform duration-200'
                           : 'bg-white/5 border-2 border-dashed border-white/20'
                       } flex items-center justify-center w-[clamp(56px,8vw,120px)]`}
                     >
-                      {i < table.board.length ? (
+                      {i < (table.board?.length || 0) && table.board?.[i] ? (
                         <PokerCard
                           suit={table.board[i].suit}
                           rank={table.board[i].rank}
@@ -796,30 +807,30 @@ const Play: React.FC = () => {
 
 
         {/* Hero bottom center */}
-        {players.filter((p: Player) => p.isHero).map((p: Player) => (
+        {players?.filter((p: Player) => p.isHero).map((p: Player) => (
           <div key={p.id} className="absolute left-1/2 bottom-2 -translate-x-1/2">
             <PlayerSeat
               player={p}
-              isDealer={players.indexOf(p) === dealerIndex}
-              isSmallBlind={players.indexOf(p) === smallBlindIndex}
-              isBigBlind={players.indexOf(p) === bigBlindIndex}
+              isDealer={players?.indexOf(p) === dealerIndex}
+              isSmallBlind={players?.indexOf(p) === smallBlindIndex}
+              isBigBlind={players?.indexOf(p) === bigBlindIndex}
               reveal={table.dealerDrawInProgress ? table.dealerDrawRevealed : reveal}
               drawCard={table.dealerDrawCards[p.id]}
               showDrawCard={table.dealerDrawInProgress}
-              isActive={players.indexOf(p) === table.currentPlayerIndex}
+              isActive={players?.indexOf(p) === (table.currentPlayerIndex ?? -1)}
               position="bottom"
               gameStage={table.stage}
-              isThinking={table.botPendingIndex === players.indexOf(p)}
+              isThinking={table.botPendingIndex === players?.indexOf(p)}
               actionText={seatActions[p.id]}
               chipAnchorRef={(el) => { chipAnchorsRef.current[p.id] = el; }}
-              isHighlighted={table.dealerDrawInProgress && table.dealerDrawRevealed && (players.indexOf(p) === (table.dealingState?.highCardPlayerIndex ?? table.dealerIndex))}
+              isHighlighted={table.dealerDrawInProgress && table.dealerDrawRevealed && (players?.indexOf(p) === (table.dealingState?.highCardPlayerIndex ?? table.dealerIndex))}
             />
           </div>
         ))}
 
         {/* Other players placed around a ring */}
         {bots.map((p: Player, i: number) => {
-          const idx = players.indexOf(p);
+          const idx = players?.indexOf(p) ?? -1;
           const pos = botRing[i] || { left: 88, top: 25, position: 'right' as const };
           const compactLevel = bots.length > 6 ? 'ultra' : (bots.length > 3 ? 'compact' : 'normal');
           return (
@@ -836,7 +847,7 @@ const Play: React.FC = () => {
                 reveal={table.dealerDrawInProgress ? table.dealerDrawRevealed : reveal}
                 drawCard={table.dealerDrawCards[p.id]}
                 showDrawCard={table.dealerDrawInProgress}
-                isActive={idx === table.currentPlayerIndex}
+                isActive={idx === (table.currentPlayerIndex ?? -1)}
                 position={pos.position}
                 gameStage={table.stage}
                 isThinking={table.botPendingIndex === idx}
