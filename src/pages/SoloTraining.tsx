@@ -190,7 +190,7 @@ const SoloTraining: React.FC = () => {
         <div className="absolute top-1/3 right-1/3 w-14 h-14 border-2 border-white/20 rounded-full"></div>
       </div>
 
-      <Navbar onShuffle={handleResetGame} actionLabel="New Hand" />
+      <Navbar />
       <div className="relative mx-auto max-w-none px-1 py-2">
         <div className="flex flex-col">
 
@@ -303,6 +303,18 @@ const SoloTraining: React.FC = () => {
                     <span className="text-base font-bold">✓</span>
                   </div>
                   <span>{loading ? '...' : 'Check'}</span>
+                </button>
+                <button 
+                  className="group w-full sm:w-auto flex items-center space-x-3 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 border-2 border-green-500 hover:border-green-400 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-xl" 
+                  onClick={handleResetGame}
+                  disabled={loading}
+                >
+                  <div className="w-6 h-6 bg-green-500 rounded-lg flex items-center justify-center group-hover:bg-green-400 transition-colors duration-300">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </div>
+                  <span>{loading ? '...' : 'New Hand'}</span>
                 </button>
               </div>
 

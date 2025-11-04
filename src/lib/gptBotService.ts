@@ -14,7 +14,7 @@ export class GPTBotService {
   private baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
   private context: Array<{role: string, content: string}> = [];
 
-  constructor(apiKey: string, model: string = 'openai/gpt-3.5-turbo') {
+  constructor(apiKey: string, model: string = (import.meta.env.VITE_OPENROUTER_MODEL || 'qwen/qwen-2.5-72b-instruct')) {
     this.apiKey = apiKey;
     this.model = model;
     this.initializeContext();
@@ -41,11 +41,24 @@ export class GPTBotService {
   private buildPrompt(gameState: TableState, playerIndex: number): string {
     const player = gameState.players[playerIndex];
     const opponents = gameState.players.filter((_, i) => i !== playerIndex);
+    const n = gameState.players.length;
+    const dealerIndex = gameState.dealerIndex ?? 0;
+    const posIndex = ((playerIndex - dealerIndex + n) % n);
+    const posName = (() => {
+      if (n <= 2) return posIndex === 0 ? 'Button/SB' : 'BB';
+      const map = ['Button', 'SB', 'BB', 'UTG', 'MP', 'HJ', 'CO'];
+      return map[Math.min(posIndex, map.length - 1)];
+    })();
+    const difficulty = (player.ai?.difficulty || gameState.difficulty || 'Medium');
+    const personality = (player.ai?.personality || 'Balanced');
+    const lastActions = (gameState.actionLog || []).slice(-6).map(e => e.message).join(' | ');
     
     // Safely access player's hand - using 'holeCards' instead of 'hand' to match the TableState type
     const playerHand = 'holeCards' in player ? player.holeCards : [];
     
-    return `Game State:
+    return `You are playing No-Limit Texas Hold'em. Make a single optimal decision.
+    Difficulty: ${difficulty}. Personality: ${personality}. Position: ${posName}.
+    Game State:
     - Stage: ${gameState.stage}
     - Pot: ${gameState.pot}
     - Current bet to call: ${gameState.currentBet}
@@ -54,11 +67,13 @@ export class GPTBotService {
     - Your hand: ${this.formatCards(playerHand || [])}
     - Community cards: ${gameState.communityCards?.length > 0 ? this.formatCards(gameState.communityCards) : 'None yet'}
     - Opponents: ${opponents.length} (${opponents.map(o => `${o.chips} chips, ${o.bet} bet`).join('; ')})
-    
-    Respond with ONLY a valid JSON object in this exact format:
-    {"action": "fold|call|raise|allin", "amount": number, "reasoning": "brief explanation"}
-    
-    Do not include any other text before or after the JSON.`;
+    - Recent actions: ${lastActions || 'none'}
+    Guidance:
+    - Consider pot odds, stack depths (in BB), position, and aggression frequencies.
+    - On Hard, prefer GTO-style ranges and sizing. On Easy, play straightforward.
+    - If raising, provide a realistic total bet amount (raise-to), not just the increment.
+    Output ONLY a valid JSON object in this exact format without extra text:
+    {"action": "fold|check|call|raise|allin", "amount": number, "reasoning": "brief explanation"}`;
   }
 
   async makeDecision(gameState: TableState, playerIndex: number): Promise<BotDecision> {
@@ -68,11 +83,13 @@ export class GPTBotService {
     const prompt = this.buildPrompt(gameState, playerIndex);
     console.log('[GPT Bot] Generated prompt:', prompt);
     
+    const tempByDiff = (d: string) => d === 'Hard' ? 0.2 : d === 'Medium' ? 0.4 : 0.7;
+    const difficulty = (gameState.players[playerIndex]?.ai?.difficulty || gameState.difficulty || 'Medium') as string;
     const requestBody = {
       model: this.model,
       messages: [...this.context, { role: 'user', content: prompt }],
-      temperature: 0.7,
-      max_tokens: 500,
+      temperature: tempByDiff(difficulty),
+      max_tokens: 400,
     };
 
     console.log('[GPT Bot] Sending request to OpenRouter API...');

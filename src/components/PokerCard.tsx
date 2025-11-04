@@ -21,19 +21,71 @@ export const PokerCard: React.FC<PokerCardProps> = ({
   return (
     <div 
       className={`card card-3d transition-all duration-200 ${highlightClass} ${className}`} 
-      style={{ transform: `scale(${scale})` }}
+      style={{
+        transform: `scale(${scale})`,
+        width: 'clamp(4rem, 8vw, 7rem)',
+        height: 'clamp(5.5rem, 11vw, 9.5rem)',
+        minWidth: 'clamp(4rem, 8vw, 7rem)',
+        minHeight: 'clamp(5.5rem, 11vw, 9.5rem)',
+        overflow: 'hidden'
+      }}
     >
       <div
         className={`card-inner ${flippedClass}`}
-        style={{ transitionDuration: '600ms', transitionDelay: `${animationDelayMs}ms` }}
+        style={{ 
+          transitionDuration: '600ms', 
+          transitionDelay: `${animationDelayMs}ms`,
+          width: '100%',
+          height: '100%',
+          position: 'relative',
+          transformStyle: 'preserve-3d'
+        }}
       >
-        <div className={`card-face card-front ${SUIT_COLOR_CLASS[suit]}`}>
-          <div className="card-rank">{rank}</div>
-          <div className="card-suit">{SUIT_SYMBOL[suit]}</div>
-          <div className="card-rank-bottom">{rank}</div>
+        <div 
+          className={`card-face card-front ${SUIT_COLOR_CLASS[suit]}`}
+          style={{
+            position: 'absolute',
+            width: '100%',
+            height: '100%',
+            backfaceVisibility: 'hidden',
+            borderRadius: '0.5rem',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            padding: '0.5rem',
+            boxSizing: 'border-box',
+            outline: 'none',
+            border: 'none',
+            overflow: 'hidden'
+          }}
+        >
+          <div className="card-rank" style={{ fontSize: 'clamp(1rem, 1.8vw, 1.5rem)', fontWeight: 'bold' }}>{rank}</div>
+          <div className="card-suit" style={{ fontSize: 'clamp(1.5rem, 3vw, 2.5rem)', margin: 'auto 0' }}>{SUIT_SYMBOL[suit]}</div>
+          <div className="card-rank-bottom" style={{ fontSize: 'clamp(1rem, 1.8vw, 1.5rem)', fontWeight: 'bold', transform: 'rotate(180deg)' }}>{rank}</div>
         </div>
-        <div className="card-face card-back">
-          <div className={`card-back-pattern ${isShuffling ? 'back-shimmer' : ''}`} />
+        <div 
+          className="card-face card-back"
+          style={{
+            position: 'absolute',
+            width: '100%',
+            height: '100%',
+            backfaceVisibility: 'hidden',
+            borderRadius: '0.5rem',
+            background: 'linear-gradient(135deg, #1a365d 0%, #2c5282 100%)',
+            outline: 'none',
+            border: 'none',
+            transform: 'rotateY(180deg)'
+          }}
+        >
+          <div 
+            className={`card-back-pattern ${isShuffling ? 'back-shimmer' : ''}`}
+            style={{
+              width: '100%',
+              height: '100%',
+              background: 'repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1) 2px, transparent 2px, transparent 4px)',
+              borderRadius: '0.5rem'
+            }}
+          />
         </div>
       </div>
     </div>

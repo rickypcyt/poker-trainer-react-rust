@@ -477,6 +477,7 @@ export function heroCall(state: TableState): TableState {
       players, 
       pot,
       potStack,
+      currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
       currentPlayerIndex: (heroIdx + 1) % state.players.length,
       actionLog: [...state.actionLog, { message: `${hero.name} called ${pay}`, time: new Date().toLocaleTimeString() }] 
     };
@@ -490,7 +491,9 @@ export function heroRaiseTo(state: TableState, raiseTo: number): TableState {
   const heroIdx = getHeroIndex(state);
   if (heroIdx < 0) return state;
   const hero = state.players[heroIdx];
-  const target = Math.max(raiseTo, hero.bet);
+  const highest = maxBet(state);
+  const minRaiseTo = (highest || 0) + (state.bigBlind || 0);
+  const target = Math.max(raiseTo, hero.bet, minRaiseTo);
   const delta = Math.max(0, target - hero.bet);
   const pay = Math.min(delta, hero.chips);
   const newHeroStack = { ...hero.chipStack };
@@ -504,11 +507,89 @@ export function heroRaiseTo(state: TableState, raiseTo: number): TableState {
     players, 
     pot,
     potStack,
+    currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
     currentPlayerIndex: (heroIdx + 1) % state.players.length, // Move to next player
     actionLog: [...state.actionLog, { message: `${hero.name} raised to ${hero.bet + pay}`, time: new Date().toLocaleTimeString() }] 
   };
   
   // Process next player's action if it's a bot
+  return processNextAction(newState);
+}
+
+// Generic player-indexed actions for bots (mirror hero helpers but apply to provided index)
+function playerFold(state: TableState, idx: number): TableState {
+  if (idx < 0 || idx >= state.players.length) return state;
+  const players = state.players.map((p, i) => i === idx ? { ...p, hasFolded: true } : p);
+  const newState = {
+    ...state,
+    players,
+    currentPlayerIndex: (idx + 1) % state.players.length,
+    actionLog: [...state.actionLog, { message: `${state.players[idx].name} folded`, time: new Date().toLocaleTimeString() }]
+  };
+  const activePlayers = newState.players.filter(p => !p.hasFolded);
+  if (activePlayers.length <= 1) {
+    const winnerIndex = newState.players.findIndex(p => !p.hasFolded);
+    const awarded = awardPotToWinner(newState, winnerIndex, 'all others folded');
+    return { ...awarded, stage: 'Showdown' };
+  }
+  return processNextAction(newState);
+}
+
+function playerCall(state: TableState, idx: number): TableState {
+  if (idx < 0 || idx >= state.players.length) return state;
+  const highest = maxBet(state);
+  const pl = state.players[idx];
+  const toCall = Math.max(0, highest - pl.bet);
+  if (toCall <= 0) {
+    const newState = {
+      ...state,
+      currentPlayerIndex: (idx + 1) % state.players.length,
+      actionLog: [...state.actionLog, { message: `${pl.name} checked`, time: new Date().toLocaleTimeString() }]
+    };
+    return processNextAction(newState);
+  }
+  const pay = Math.min(toCall, pl.chips);
+  const newStack = { ...pl.chipStack };
+  const used = takeFromChipStackGreedy(newStack, pay);
+  const players = state.players.map((p, i) => i === idx ? { ...p, chips: p.chips - pay, bet: p.bet + pay, chipStack: newStack } : p);
+  const pot = state.pot + pay;
+  const potStack = { ...state.potStack };
+  addToChipStack(potStack, used);
+  const newState = {
+    ...state,
+    players,
+    pot,
+    potStack,
+    currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
+    currentPlayerIndex: (idx + 1) % state.players.length,
+    actionLog: [...state.actionLog, { message: `${pl.name} called ${pay}`, time: new Date().toLocaleTimeString() }]
+  };
+  return processNextAction(newState);
+}
+
+function playerRaiseTo(state: TableState, idx: number, raiseTo: number): TableState {
+  if (idx < 0 || idx >= state.players.length) return state;
+  const pl = state.players[idx];
+  const highest = maxBet(state);
+  const minRaiseTo = (highest || 0) + (state.bigBlind || 0);
+  const target = Math.max(raiseTo, pl.bet, minRaiseTo);
+  const delta = Math.max(0, target - pl.bet);
+  const pay = Math.min(delta, pl.chips);
+  const newStack = { ...pl.chipStack };
+  const used = takeFromChipStackGreedy(newStack, pay);
+  const players = state.players.map((p, i) => i === idx ? { ...p, chips: p.chips - pay, bet: p.bet + pay, chipStack: newStack } : p);
+  const pot = state.pot + pay;
+  const potStack = { ...state.potStack };
+  addToChipStack(potStack, used);
+  const newState = {
+    ...state,
+    players,
+    pot,
+    potStack,
+    currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
+    currentPlayerIndex: (idx + 1) % state.players.length,
+    actionLog: [...state.actionLog, { message: `${pl.name} raised to ${pl.bet + pay}`, time: new Date().toLocaleTimeString() }]
+  };
   return processNextAction(newState);
 }
 
@@ -519,9 +600,53 @@ export function processNextAction(state: TableState): TableState {
     return state;
   }
 
-  // Safety: if only one active player remains, immediately award the pot and end the hand
+  // Helper: detect if at least one player action occurred in the current street
+  const hasAnyActionThisStreet = (): boolean => {
+    const logs = state.actionLog || [];
+    // Find the last marker indicating start of this street
+    const isStreetStart = (msg: string): boolean => {
+      if (state.stage === 'PreFlop') return /New hand #/i.test(msg) || /posts (small|big) blind/i.test(msg);
+      if (state.stage === 'Flop') return /Dealing the flop/i.test(msg);
+      if (state.stage === 'Turn') return /Dealing the turn/i.test(msg);
+      if (state.stage === 'River') return /Dealing the river/i.test(msg);
+      return false;
+    };
+    let lastStreetStart = -1;
+    for (let i = logs.length - 1; i >= 0; i--) {
+      if (isStreetStart(logs[i].message || '')) { lastStreetStart = i; break; }
+    }
+    // Look for any player action after the start marker
+    for (let i = Math.max(0, lastStreetStart + 1); i < logs.length; i++) {
+      const m = logs[i].message || '';
+      if (/(checked|called|raised|folded|all-in)/i.test(m)) return true;
+    }
+    return false;
+  };
+
+  // If all active players have matched the highest bet and at least one action this street,
+  // and action has rotated back to first-to-act, advance the street
+  const highestBetNow = maxBet(state);
   const activePlayersNow = state.players.filter(p => !p.hasFolded);
-  if (activePlayersNow.length <= 1) {
+  const allMatched = activePlayersNow.length > 0 && activePlayersNow.every(p => (p.bet || 0) === highestBetNow);
+  const nPlayers = state.players.length;
+  const anchor = state.stage === 'PreFlop' ? (state.bigBlindIndex + 1) % nPlayers : (state.dealerIndex + 1) % nPlayers;
+  const firstToAct = (() => {
+    for (let i = 0; i < nPlayers; i++) {
+      const idx = (anchor + i) % nPlayers;
+      const p = state.players[idx];
+      if (!p.hasFolded) return idx;
+    }
+    return anchor;
+  })();
+  if (allMatched && hasAnyActionThisStreet() && state.currentPlayerIndex === firstToAct) {
+    const advanced = advanceToNextStreet(state);
+    return processNextAction(advanced);
+  }
+
+  // Safety: if only one active player remains, immediately award the pot and end the hand
+  // (recompute to avoid shadowing)
+  const activePlayersNow2 = state.players.filter(p => !p.hasFolded);
+  if (activePlayersNow2.length <= 1) {
     const winnerIndex = state.players.findIndex(p => !p.hasFolded);
     if (winnerIndex >= 0) {
       const awarded = awardPotToWinner(state, winnerIndex, 'all others folded');
@@ -578,25 +703,25 @@ export async function performBotActionNow(state: TableState): Promise<TableState
     const botDecision = await gptBotService.makeDecision(state, botIndex);
     console.log('[performBotActionNow] Bot decision:', botDecision);
     
-    // Map the bot's decision to a game action
+    // Map the bot's decision to a game action for that bot index
     let result: TableState;
     switch (botDecision.action) {
       case 'fold':
-        result = heroFold(state);
+        result = playerFold(state, botIndex);
         break;
       case 'check':
       case 'call':
-        result = heroCall(state);
+        result = playerCall(state, botIndex);
         break;
       case 'raise':
       case 'allin': {
         const raiseAmount = botDecision.amount || (state.currentBet * 2);
-        result = heroRaiseTo(state, raiseAmount);
+        result = playerRaiseTo(state, botIndex, raiseAmount);
         break;
       }
       default:
         console.warn(`[performBotActionNow] Unknown bot action: ${botDecision.action}, defaulting to call`);
-        result = heroCall(state);
+        result = playerCall(state, botIndex);
     }
     
     // Clear pending index and continue to next action chain
@@ -1080,6 +1205,7 @@ function advanceToNextStreet(state: TableState): TableState {
     const flopState = proceedToFlop({ ...state, players });
     return { 
       ...flopState, 
+      currentBet: 0,
       currentPlayerIndex: (state.dealerIndex + 1) % state.players.length,
       actionLog: [
         ...flopState.actionLog, 
@@ -1090,6 +1216,7 @@ function advanceToNextStreet(state: TableState): TableState {
     const turnState = proceedToTurn({ ...state, players });
     return { 
       ...turnState, 
+      currentBet: 0,
       currentPlayerIndex: (state.dealerIndex + 1) % state.players.length,
       actionLog: [
         ...turnState.actionLog, 
@@ -1100,6 +1227,7 @@ function advanceToNextStreet(state: TableState): TableState {
     const riverState = proceedToRiver({ ...state, players });
     return { 
       ...riverState, 
+      currentBet: 0,
       currentPlayerIndex: (state.dealerIndex + 1) % state.players.length,
       actionLog: [
         ...riverState.actionLog, 

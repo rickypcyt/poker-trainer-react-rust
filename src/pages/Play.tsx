@@ -17,6 +17,7 @@ import LogsModal from '../components/LogsModal';
 import Navbar from '../components/Navbar';
 import PlayerSeat from '../components/PlayerSeat';
 import PokerCard from '../components/PokerCard';
+import type { Rank, Suit } from '../types/cards';
 import React from 'react';
 // import { createChipStack } from '../utils/chipUtils'; // no longer used with server-side engine
 // ActionLogEntry is used in the type definition below
@@ -34,11 +35,15 @@ const GAME_CONFIG = {
 
 const Play: React.FC = () => {
   const navigate = useNavigate();
+  const [isHandsOpen, setIsHandsOpen] = React.useState(false);
   const [isLogsOpen, setIsLogsOpen] = React.useState(false);
+  const [showRaiseDialog, setShowRaiseDialog] = React.useState(false);
+  const [raiseAmount, setRaiseAmount] = React.useState(0);
   // End-of-hand modal
   const [isEndModalOpen, setIsEndModalOpen] = React.useState(false);
   const [endModalResult, setEndModalResult] = React.useState<'won' | 'lost' | null>(null);
   const lastModalHandRef = React.useRef<number>(-1);
+  const isEndingRef = React.useRef<boolean>(false);
   const [seatActions, setSeatActions] = React.useState<Record<string, string>>({});
   const chipAnchorsRef = React.useRef<Record<string, HTMLDivElement | null>>({});
   const potRef = React.useRef<HTMLDivElement | null>(null);
@@ -193,6 +198,47 @@ const Play: React.FC = () => {
     setTable(t);
     setShowSetup(false);
   };
+
+  // Quick bet helpers
+  const computeQuickRaiseTo = React.useCallback((kind: 'half' | 'twoThirds' | 'pot' | 'allin' | 'min') => {
+    const hero = table.players?.find((p: Player) => p.isHero);
+    if (!hero) return 0;
+    const highest = maxBet(table);
+    const toCall = Math.max(0, highest - (hero.bet || 0));
+    const pot = table.pot || 0;
+    const bb = table.bigBlind || 0;
+
+    if (kind === 'allin') return (hero.chips || 0) + (hero.bet || 0);
+
+    // Base target sizing on current pot + toCall (common quick sizing baseline)
+    let target = 0;
+    if (kind === 'half') target = Math.round(0.5 * (pot + toCall));
+    if (kind === 'twoThirds') target = Math.round((2 / 3) * (pot + toCall));
+    if (kind === 'pot') target = pot + toCall;
+    if (kind === 'min') target = Math.max(bb, highest + bb - (hero.bet || 0));
+
+    // Convert target sizing to total bet amount (hero.bet after action)
+    // Ensure at least a min-raise if calling a raise
+    const minRaiseTo = Math.max(bb, highest + bb);
+    let raiseTo = (hero.bet || 0) + Math.max(toCall, target);
+    raiseTo = Math.max(raiseTo, minRaiseTo);
+    // Cap at all-in
+    const cap = (hero.chips || 0) + (hero.bet || 0);
+    raiseTo = Math.min(raiseTo, cap);
+    return raiseTo;
+  }, [table, maxBet]);
+
+  const handleQuickBet = React.useCallback((kind: 'half' | 'twoThirds' | 'pot' | 'allin' | 'min') => {
+    try {
+      const val = computeQuickRaiseTo(kind);
+      if (!val) return;
+      const next = heroRaiseTo(table, val);
+      setTable(next);
+      if (next.stage === 'Showdown') setReveal(true);
+    } catch (e) {
+      console.error('Quick bet failed', e);
+    }
+  }, [table, computeQuickRaiseTo]);
   const [reveal, setReveal] = React.useState(false);
   const [isDealing] = React.useState(false);
 
@@ -201,7 +247,9 @@ const Play: React.FC = () => {
   // Persist table to localStorage on change
   React.useEffect(() => {
     try {
-      localStorage.setItem('poker_trainer_table', JSON.stringify(table));
+      if (!isEndingRef.current && table && Array.isArray(table.players) && table.players.length > 0) {
+        localStorage.setItem('poker_trainer_table', JSON.stringify(table));
+      }
     } catch (e) {
       console.warn('Failed to save table state', e);
     }
@@ -320,12 +368,12 @@ const Play: React.FC = () => {
     }
 
     // Perform bot action immediately without delay
-    setTable(async (prev: TableState) => {
-      // Use local engine decision
-      const next = await performBotActionNow(prev);
+    (async () => {
+      // Use local engine decision without putting a Promise into state
+      const next = await performBotActionNow(table);
       if (next.stage === 'Showdown') setReveal(true);
-      return next;
-    });
+      setTable(next);
+    })();
   }, [table.botPendingIndex]);
 
 
@@ -404,6 +452,8 @@ const Play: React.FC = () => {
   // (removed handleNewHand to avoid reference before init in dependencies)
 
   const handleEndGame = () => {
+    // Prevent persistence effect from re-saving the table while ending
+    isEndingRef.current = true;
     // Append a log entry in the in-memory state for UX continuity
     setTable((prev: TableState) => ({
       ...prev,
@@ -435,11 +485,11 @@ const Play: React.FC = () => {
       toRemove.forEach((k) => localStorage.removeItem(k));
     } catch { /* ignore */ }
 
-    // Go back to main menu
-    navigate('/');
+    // Go back to main menu and replace history entry to avoid returning to Play with Back
+    navigate('/', { replace: true });
   };
 
-  const handlePlayerAction = (action: 'Fold' | 'Call' | 'Raise') => {
+  const handlePlayerAction = React.useCallback((action: 'Fold' | 'Call' | 'Raise', amount?: number) => {
     const hero = table.players?.find((p: Player) => p.isHero);
     if (!hero) return;
     // If not hero's turn or already showdown, ignore
@@ -452,57 +502,130 @@ const Play: React.FC = () => {
       } else if (action === 'Call') {
         next = heroCall(table);
       } else if (action === 'Raise') {
-        // Simple: raise to 3x big blind or all-in cap
-        const raiseTo = Math.min((table.pot || 0) + (table.bigBlind || 0) * 3, hero.chips + hero.bet);
-        next = heroRaiseTo(table, raiseTo);
+        const highest = maxBet(table);
+        const minRaise = Math.max(table.bigBlind || 0, highest + (table.bigBlind || 0));
+        const raiseTo = amount !== undefined ? amount : minRaise;
+        next = heroRaiseTo(table, Math.max(raiseTo, minRaise));
+        setShowRaiseDialog(false);
       }
       setTable(next);
       if (next.stage === 'Showdown') setReveal(true);
     } catch (e) {
       console.error('Failed to process player action locally', e);
     }
+  }, [table]);
+
+  const handleRaiseClick = () => {
+    const hero = table.players?.find((p: Player) => p.isHero);
+    if (!hero) return;
+    const highest = maxBet(table);
+    const minRaise = Math.max(table.bigBlind || 0, highest + (table.bigBlind || 0));
+    setRaiseAmount(minRaise);
+    setShowRaiseDialog(true);
   };
 
   const { players, dealerIndex, smallBlindIndex, bigBlindIndex } = table;
-  const bots = players?.filter((p: Player) => !p.isHero) || [];
-  // Compute bot positions on a ring (percentage-based) avoiding:
-  // - bottom-center overlap with the hero
-  // - top-center overlap with the dealer
+  const bots = React.useMemo(() => (players?.filter((p: Player) => !p.isHero) || []), [players]);
+  // Compute bot positions by actual table seat positions around an oval.
+  // Hero is anchored at bottom (270°). Others placed by angular offset from hero.
   const botRing = React.useMemo(() => {
+    const all = players ?? [];
     const n = bots.length;
     if (n === 0) return [] as Array<{ left: number; top: number; position: 'left' | 'right' | 'top' | 'bottom' }>;
-    const results: Array<{ left: number; top: number; position: 'left' | 'right' | 'top' | 'bottom' }> = [];
-    // Define two gaps: top (dealer) and bottom (hero)
-    const gapTopDeg = 40;    // centered at 90° (top)
-    const gapBottomDeg = 60; // centered at 270° (bottom)
-    const startA = 90 + gapTopDeg / 2;          // from just right of top gap
-    const endA = 270 - gapBottomDeg / 2;        // to just left of bottom gap
-    const startB = 270 + gapBottomDeg / 2;      // from just right of bottom gap
-    const endB = 450 - gapTopDeg / 2;           // to just left of top gap (wraps past 360 to 450)
-    const lenA = endA - startA;                 // left arc length
-    const lenB = endB - startB;                 // right arc length (same as lenA)
-    const totalLen = lenA + lenB;
-    const radius = 38; // percent of container (fits within padding)
-    for (let i = 0; i < n; i++) {
-      const t = (i + 0.5) / n; // midpoints for even spacing
-      let thetaDeg = startA + t * totalLen;
-      if (thetaDeg > endA) {
-        // jump into second arc
-        const excess = thetaDeg - endA;
-        thetaDeg = startB + excess;
-      }
-      const theta = (thetaDeg * Math.PI) / 180;
-      const cx = 50 + radius * Math.cos(theta);
-      const cy = 50 + radius * Math.sin(theta);
-      // Infer seat position for subtle UI tweaks
+    const totalSeats = all.length || n;
+    const heroSeat = all.find((p: Player) => p.isHero)?.seatIndex ?? 0;
+    const radiusX = 38; // percent width
+    const radiusY = 32; // percent height for nicer oval
+    const arr = bots.map((bot) => {
+      const rel = ((bot.seatIndex - heroSeat + totalSeats) % totalSeats);
+      const angleDeg = 270 + (360 / totalSeats) * rel;
+      const theta = (angleDeg * Math.PI) / 180;
+      const cx = 50 + radiusX * Math.cos(theta);
+      const cy = 50 + radiusY * Math.sin(theta);
       let pos: 'left' | 'right' | 'top' | 'bottom' = 'left';
       if (cy <= 35) pos = 'top';
       else if (cy >= 65) pos = 'bottom';
       else pos = cx < 50 ? 'left' : 'right';
-      results.push({ left: cx, top: cy, position: pos });
+      return { left: cx, top: cy, position: pos };
+    });
+    // Nudge bots #1 and #10 upward when exactly 10 bots are present
+    if (n === 10) {
+      const up = (i: number) => {
+        if (!arr[i]) return;
+        const t = Math.max(2, arr[i].top - 8);
+        const pos: 'left' | 'right' | 'top' | 'bottom' = t <= 35 ? 'top' : arr[i].position;
+        arr[i] = { ...arr[i], top: t, position: pos };
+      };
+      up(0);        // bot #1 (first in list)
+      up(n - 1);   // bot #10 (last in list)
+
+      // Horizontal tweak: move #6 left and #5 right slightly to improve spacing
+      const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+      const shiftX = (i: number, dx: number) => {
+        if (!arr[i]) return;
+        const nx = clamp(arr[i].left + dx, 6, 94);
+        let pos: 'left' | 'right' | 'top' | 'bottom' = arr[i].position;
+        if (arr[i].top > 35 && arr[i].top < 65) {
+          pos = nx < 50 ? 'left' : 'right';
+        }
+        arr[i] = { ...arr[i], left: nx, position: pos };
+      };
+      shiftX(5, -6); // bot #6 more to the left
+      shiftX(4, +6); // bot #5 more to the right
     }
-    return results;
-  }, [bots.length]);
+    return arr;
+  }, [bots, players]);
+
+  // Derived info for UI hints and status
+  const heroIdx = getHeroIndex(table);
+  const hero = table.players?.[heroIdx];
+  const highestBet = maxBet(table);
+  const toCallVal = Math.max(0, highestBet - (hero?.bet || 0));
+  const minRaiseToVal = Math.max((table.bigBlind || 0), (highestBet || 0) + (table.bigBlind || 0));
+  const isHeroTurn = heroIdx >= 0 && table.currentPlayerIndex === heroIdx && table.stage !== 'Showdown';
+  const currentActorName = isHeroTurn ? 'You' : (table.players?.[table.currentPlayerIndex || 0]?.name || 'Player');
+
+  // Last action banner (English): derive from last actionLog
+  const lastActionBanner = React.useMemo(() => {
+    if (!table?.actionLog || table.actionLog.length === 0) return null;
+    const last = table.actionLog[table.actionLog.length - 1];
+    const msg = last.message || '';
+    const m = msg.match(/^(.*?)\s+(raised to|called|checked|folded)(?:\s+([0-9]+))?/i);
+    if (!m) return null;
+    const [, nameRaw, actionRaw, amtRaw] = m;
+    const isHero = nameRaw === 'You';
+    const name = isHero ? 'You' : nameRaw;
+    const actionLc = actionRaw.toLowerCase();
+    let actionEn = '';
+    if (actionLc.startsWith('raised')) actionEn = 'raised to';
+    else if (actionLc === 'called') actionEn = 'called';
+    else if (actionLc === 'checked') actionEn = 'checked';
+    else if (actionLc === 'folded') actionEn = 'folded';
+    const amount = amtRaw ? `$${Number(amtRaw).toLocaleString()}` : '';
+    const text = amount && actionEn.includes('raised') ? `${name} ${actionEn} ${amount}` : `${name} ${actionEn}${amount ? ' ' + amount : ''}`;
+    return { text, isHero } as { text: string; isHero: boolean };
+  }, [table.actionLog]);
+
+  // Keyboard shortcuts for quick actions when it's hero's turn
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isHeroTurn || table.stage === 'Showdown' || table.dealerDrawInProgress) return;
+      const k = e.key.toLowerCase();
+      if (['f', 'c', 'r', '1', '2', '3', 'a', 'm'].includes(k)) {
+        e.preventDefault();
+      }
+      if (k === 'f') return handlePlayerAction('Fold');
+      if (k === 'c') return handlePlayerAction('Call');
+      if (k === 'r') return handlePlayerAction('Raise');
+      if (k === '1') return handleQuickBet('half');
+      if (k === '2') return handleQuickBet('twoThirds');
+      if (k === '3') return handleQuickBet('pot');
+      if (k === 'a') return handleQuickBet('allin');
+      if (k === 'm') return handleQuickBet('min');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isHeroTurn, table.stage, table.dealerDrawInProgress, handlePlayerAction, handleQuickBet]);
 
   // Note: animateDeal function was removed as it was not being used
   // and the card dealing animation is handled by the table engine
@@ -522,6 +645,7 @@ const Play: React.FC = () => {
         onShuffle={() => { setReveal(false); setTable((prev: TableState) => startNewHand(prev)); }} 
         actionLabel="New Hand" 
         onOpenLogs={() => setIsLogsOpen(true)}
+        onOpenHands={() => setIsHandsOpen(true)}
         onEndGame={handleEndGame}
       />
 
@@ -646,6 +770,213 @@ const Play: React.FC = () => {
         onClear={() => setTable((prev: TableState) => ({ ...prev, actionLog: [] }))}
       />
 
+      {/* Poker Hands modal */}
+      {isHandsOpen && (
+        <div className="fixed inset-0 z-[85] flex items-center justify-center p-2 sm:p-4 md:p-6">
+          <div 
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm" 
+            onClick={() => setIsHandsOpen(false)} 
+          />
+          <div className="relative z-10 w-full h-full max-w-6xl max-h-[90vh] bg-neutral-900/95 text-white rounded-2xl border border-white/10 shadow-2xl p-4 sm:p-6 flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                Poker Hand Rankings
+              </h2>
+              <button 
+                className="px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-sm sm:text-base transition-colors duration-200" 
+                onClick={() => setIsHandsOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 text-white/90 text-sm overflow-y-auto pr-2 flex-1 custom-scrollbar">
+              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
+                <div className="mb-2 sm:mb-3 text-center">
+                  <div className="font-bold text-base sm:text-lg text-white">Royal Flush</div>
+                  <div className="text-white/60 text-xs sm:text-sm">A-K-Q-J-10 same suit</div>
+                </div>
+                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
+                  {([
+                    {rank:'A',suit:'hearts'},
+                    {rank:'K',suit:'hearts'},
+                    {rank:'Q',suit:'hearts'},
+                    {rank:'J',suit:'hearts'},
+                    {rank:'10',suit:'hearts'}
+                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
+                    <div key={`rf-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
+                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
+                <div className="mb-2 sm:mb-3 text-center">
+                  <div className="font-bold text-base sm:text-lg text-white">Straight Flush</div>
+                  <div className="text-white/60 text-xs sm:text-sm">Five in a row, same suit</div>
+                </div>
+                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
+                  {([
+                    {rank:'9',suit:'spades'},
+                    {rank:'8',suit:'spades'},
+                    {rank:'7',suit:'spades'},
+                    {rank:'6',suit:'spades'},
+                    {rank:'5',suit:'spades'}
+                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
+                    <div key={`sf-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
+                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
+                <div className="mb-2 sm:mb-3 text-center">
+                  <div className="font-bold text-base sm:text-lg text-white">Four of a Kind</div>
+                  <div className="text-white/60 text-xs sm:text-sm">Four cards same rank</div>
+                </div>
+                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
+                  {([
+                    {rank:'9',suit:'hearts'},
+                    {rank:'9',suit:'spades'},
+                    {rank:'9',suit:'diamonds'},
+                    {rank:'9',suit:'clubs'},
+                    {rank:'K',suit:'hearts'}
+                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
+                    <PokerCard key={`fk-${i}`} rank={c.rank} suit={c.suit} scale={0.5} />
+                  ))}
+                </div>
+              </div>
+              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
+                <div className="mb-2 sm:mb-3 text-center">
+                  <div className="font-bold text-base sm:text-lg text-white">Full House</div>
+                  <div className="text-white/60 text-xs sm:text-sm">Three of a kind + a pair</div>
+                </div>
+                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
+                  {([
+                    {rank:'10',suit:'hearts'},
+                    {rank:'10',suit:'spades'},
+                    {rank:'10',suit:'diamonds'},
+                    {rank:'7',suit:'clubs'},
+                    {rank:'7',suit:'hearts'}
+                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
+                    <PokerCard key={`fh-${i}`} rank={c.rank} suit={c.suit} scale={0.5} />
+                  ))}
+                </div>
+              </div>
+              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
+                <div className="mb-2 sm:mb-3 text-center">
+                  <div className="font-bold text-base sm:text-lg text-white">Flush</div>
+                  <div className="text-white/60 text-xs sm:text-sm">Five cards same suit</div>
+                </div>
+                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
+                  {([
+                    {rank:'A',suit:'clubs'},
+                    {rank:'J',suit:'clubs'},
+                    {rank:'8',suit:'clubs'},
+                    {rank:'5',suit:'clubs'},
+                    {rank:'2',suit:'clubs'}
+                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
+                    <PokerCard key={`fl-${i}`} rank={c.rank} suit={c.suit} scale={0.5} />
+                  ))}
+                </div>
+              </div>
+              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
+                <div className="mb-2 sm:mb-3 text-center">
+                  <div className="font-bold text-base sm:text-lg text-white">Straight</div>
+                  <div className="text-white/60 text-xs sm:text-sm">Five in a row</div>
+                </div>
+                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
+                  {([
+                    {rank:'9',suit:'hearts'},
+                    {rank:'8',suit:'clubs'},
+                    {rank:'7',suit:'diamonds'},
+                    {rank:'6',suit:'spades'},
+                    {rank:'5',suit:'hearts'}
+                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
+                    <PokerCard key={`st-${i}`} rank={c.rank} suit={c.suit} scale={0.5} />
+                  ))}
+                </div>
+              </div>
+              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
+                <div className="mb-2 sm:mb-3 text-center">
+                  <div className="font-bold text-base sm:text-lg text-white">Three of a Kind</div>
+                  <div className="text-white/60 text-xs sm:text-sm">Three cards same rank</div>
+                </div>
+                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
+                  {([
+                    {rank:'Q',suit:'hearts'},
+                    {rank:'Q',suit:'clubs'},
+                    {rank:'Q',suit:'spades'},
+                    {rank:'7',suit:'hearts'},
+                    {rank:'2',suit:'diamonds'}
+                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
+                    <div key={`tk-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
+                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
+                <div className="mb-2 sm:mb-3 text-center">
+                  <div className="font-bold text-base sm:text-lg text-white">Two Pair</div>
+                  <div className="text-white/60 text-xs sm:text-sm">Two different pairs</div>
+                </div>
+                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
+                  {([
+                    {rank:'K',suit:'hearts'},
+                    {rank:'K',suit:'clubs'},
+                    {rank:'9',suit:'spades'},
+                    {rank:'9',suit:'diamonds'},
+                    {rank:'3',suit:'hearts'}
+                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
+                    <div key={`tp-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
+                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
+                <div className="mb-2 sm:mb-3 text-center">
+                  <div className="font-bold text-base sm:text-lg text-white">One Pair</div>
+                  <div className="text-white/60 text-xs sm:text-sm">Two cards same rank</div>
+                </div>
+                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
+                  {([
+                    {rank:'A',suit:'spades'},
+                    {rank:'A',suit:'diamonds'},
+                    {rank:'9',suit:'hearts'},
+                    {rank:'6',suit:'clubs'},
+                    {rank:'2',suit:'spades'}
+                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
+                    <div key={`op-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
+                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-lg p-1.5 flex flex-col min-w-0">
+                <div className="mb-1 text-center">
+                  <div className="font-semibold truncate">High Card</div>
+                  <div className="text-white/70 text-xs truncate">No matching cards</div>
+                </div>
+                <div className="flex items-center justify-center -space-x-3 flex-nowrap overflow-visible">
+                  {([
+                    {rank:'A',suit:'hearts'},
+                    {rank:'J',suit:'spades'},
+                    {rank:'8',suit:'diamonds'},
+                    {rank:'5',suit:'clubs'},
+                    {rank:'2',suit:'hearts'}
+                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
+                    <div key={`hc-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
+                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="relative w-full h-[calc(100vh-6rem)] flex items-center justify-center px-2 py-2 overflow-hidden">
         {/* Chip legend removed; hover details are shown on each ChipStack */}
         {/* Simple chip legend row for reference (colors and labels) */}
@@ -658,8 +989,36 @@ const Play: React.FC = () => {
           ))}
         </div>
 
-        {/* Buttons card right */}
-        <div className="absolute right-2 bottom-2 bg-gray-900/90 backdrop-blur-md rounded-xl p-3 border border-gray-600/50 shadow-xl">
+        {/* Top-right info panel */}
+        <div className="absolute right-2 top-2 bg-gray-900/90 backdrop-blur-md rounded-xl p-3 border border-gray-600/50 shadow-xl w-[min(360px,42vw)] z-[70]">
+          {lastActionBanner && (
+            <div className={`mb-2 text-center text-sm font-semibold px-3 py-1 rounded-md border ${lastActionBanner.isHero ? 'bg-emerald-600/20 border-emerald-400/40 text-emerald-200' : 'bg-white/10 border-white/20 text-white/90'}`}>
+              Última acción: {lastActionBanner.text}
+            </div>
+          )}
+          <div className="text-white/90 text-sm mb-2 text-center">
+            {isHeroTurn ? (
+              <div>
+                <span className="text-emerald-300 font-semibold">Your turn</span>
+              </div>
+            ) : (
+              <div>
+                Waiting for <span className="text-yellow-300 font-semibold">{currentActorName}</span>...
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[12px] text-white/80">
+            <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Stage: <span className="text-yellow-300 font-semibold">{table.stage}</span></div>
+            <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Pot: <span className="text-yellow-300 font-semibold">${(table.pot||0).toLocaleString()}</span></div>
+            <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Current bet: <span className="font-semibold">${highestBet}</span></div>
+            <div className="bg-black/40 rounded px-2 py-1 border border-white/10">To call: <span className="font-semibold">${toCallVal}</span></div>
+            <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Min raise to: <span className="font-semibold">${minRaiseToVal}</span></div>
+            <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Blinds: <span className="font-semibold">${table.smallBlind}/{table.bigBlind}</span></div>
+          </div>
+        </div>
+
+        {/* Buttons card right (controls only) */}
+        <div className="absolute right-2 bottom-2 bg-gray-900/90 backdrop-blur-md rounded-xl p-3 border border-gray-600/50 shadow-xl w-[min(360px,42vw)] z-[70]">
           <h3 className="text-white font-bold text-center mb-2 text-base uppercase tracking-wider">Controls</h3>
           
           {table.dealerDrawInProgress && !table.dealerDrawRevealed ? (
@@ -687,7 +1046,32 @@ const Play: React.FC = () => {
               </button>
             </div>
           ) : (
-            <div className="flex flex-row flex-wrap gap-2 items-stretch">
+            <div className="flex flex-col gap-2">
+              {isHeroTurn && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <button
+                    className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15"
+                    onClick={() => handleQuickBet('half')}
+                  >1/2 Pot (1)</button>
+                  <button
+                    className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15"
+                    onClick={() => handleQuickBet('twoThirds')}
+                  >2/3 Pot (2)</button>
+                  <button
+                    className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15"
+                    onClick={() => handleQuickBet('pot')}
+                  >Pot (3)</button>
+                  <button
+                    className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15"
+                    onClick={() => handleQuickBet('min')}
+                  >Min (M)</button>
+                  <button
+                    className="px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15 col-span-2 sm:col-span-1"
+                    onClick={() => handleQuickBet('allin')}
+                  >All-in (A)</button>
+                </div>
+              )}
+              <div className="flex flex-row flex-wrap gap-2 items-stretch">
               <button 
                 className={`font-semibold px-4 py-2 rounded-md flex-1 min-w-[120px] transition-colors shadow-md ${
                   table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
@@ -722,26 +1106,64 @@ const Play: React.FC = () => {
                     ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                     : 'bg-yellow-600 hover:bg-yellow-500 text-white'
                 }`}
-                onClick={() => handlePlayerAction('Raise')}
+                onClick={handleRaiseClick}
                 disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
               >
                 {(() => {
                   const hero = table.players?.[getHeroIndex(table)];
                   const toCall = Math.max(0, maxBet(table) - (hero?.bet || 0));
-                  const minRaise = Math.max(table.bigBlind || 0, maxBet(table) * 2 - (hero?.bet || 0));
+                  const highest = maxBet(table);
+                  const minRaise = Math.max(table.bigBlind || 0, highest + (table.bigBlind || 0));
                   if ((hero?.chips || 0) <= toCall) return 'All-in';
-                  if (toCall > 0) return `Raise to $${minRaise}`;
-                  return `Raise $${minRaise}`;
+                  return `Raise to $${minRaise}`;
                 })()}
               </button>
-            </div>
+              
+              {showRaiseDialog && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+                  <div className="bg-gray-800 p-6 rounded-xl w-96">
+                    <h3 className="text-xl font-bold mb-4 text-white">Raise Amount</h3>
+                    <div className="mb-4">
+                      <label className="block text-gray-300 mb-2">
+                        Amount (Min: ${(() => {
+                          const highest = maxBet(table);
+                          return Math.max(table.bigBlind || 0, highest + (table.bigBlind || 0));
+                        })()})
+                      </label>
+                      <input
+                        type="number"
+                        value={raiseAmount}
+                        onChange={(e) => setRaiseAmount(Number(e.target.value))}
+                        className="w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="flex justify-end space-x-2">
+                      <button
+                        onClick={() => setShowRaiseDialog(false)}
+                        className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-500"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handlePlayerAction('Raise', raiseAmount)}
+                        className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-500"
+                        disabled={raiseAmount < (() => {
+                          const highest = maxBet(table);
+                          return Math.max(table.bigBlind || 0, highest + (table.bigBlound || 0));
+                        })()}
+                      >
+                        Raise to ${raiseAmount}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              </div>
+</div>
           )}
           
-          <div className="text-white/90 text-center text-base mt-3 font-medium">
-            <div className="bg-gray-800/80 py-1 px-2 rounded">
-              <span className="text-yellow-400 ml-1">{table.stage || 'Unknown'}</span>
-            </div>
-          </div>
+          
         </div>
         {/* Poker table - larger and perfectly centered */}
         <div className="relative w-[90vw] max-w-[1200px] h-[65vh] min-h-[500px]">

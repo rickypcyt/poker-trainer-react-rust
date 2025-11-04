@@ -12,7 +12,7 @@ interface ChipStackProps {
   lowercaseLabels?: boolean;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   countFormat?: 'suffixTimes' | 'prefixX';
-  columns?: 1 | 2;
+  columns?: 1 | 2 | 3;
 }
 
 const ChipStack: React.FC<ChipStackProps> = ({ 
@@ -55,9 +55,11 @@ const ChipStack: React.FC<ChipStackProps> = ({
     }
   } as const;
   const s = sizeClasses[size];
-  const containerClass = columns === 2
+  const containerClass = columns === 3
+    ? `grid grid-cols-3 items-start ${s.containerGap} gap-x-2`
+    : columns === 2
     ? `grid grid-cols-2 items-start ${s.containerGap} gap-x-2`
-    : `flex flex-col items-start ${s.containerGap}`;
+    : `flex flex-row items-center flex-nowrap ${s.containerGap}`;
   return (
     <div className={containerClass}>
       {denoms.map((d) => {
