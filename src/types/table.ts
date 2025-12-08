@@ -69,6 +69,9 @@ export interface TableState {
   botDecisionDueAt?: string | null;
   // Difficulty level that influences bot decisions
   difficulty?: Difficulty;
+  // Optional loss analysis and suggestion
+  lossReason?: string;
+  suggestion?: string;
 }
 
 export interface DealConfig {

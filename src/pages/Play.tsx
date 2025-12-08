@@ -1,5 +1,6 @@
 import { CHIP_COLOR_CLASS, CHIP_DENOMS } from '../constants/chips';
 import type { Difficulty, Player, TableState } from '../types/table';
+import type { Rank, Suit } from '../types/cards';
 import {
   createInitialTable,
   heroCall,
@@ -13,11 +14,11 @@ import {
 
 import ChipStack from '../components/ChipStack';
 import Dealer from '../components/Dealer';
+import HandRankingCard from '../components/HandRankingCard';
 import LogsModal from '../components/LogsModal';
 import Navbar from '../components/Navbar';
 import PlayerSeat from '../components/PlayerSeat';
 import PokerCard from '../components/PokerCard';
-import type { Rank, Suit } from '../types/cards';
 import React from 'react';
 // import { createChipStack } from '../utils/chipUtils'; // no longer used with server-side engine
 // ActionLogEntry is used in the type definition below
@@ -40,6 +41,7 @@ const Play: React.FC = () => {
   const [showRaiseDialog, setShowRaiseDialog] = React.useState(false);
   const [raiseAmount, setRaiseAmount] = React.useState(0);
   // End-of-hand modal
+  const [heroWonAmount, setHeroWonAmount] = React.useState(0);
   const [isEndModalOpen, setIsEndModalOpen] = React.useState(false);
   const [endModalResult, setEndModalResult] = React.useState<'won' | 'lost' | null>(null);
   const lastModalHandRef = React.useRef<number>(-1);
@@ -52,9 +54,9 @@ const Play: React.FC = () => {
   const prevPotRef = React.useRef<number>(0);
   // Try to hydrate from localStorage
   const savedTable = typeof window !== 'undefined' ? localStorage.getItem('poker_trainer_table') : null;
-  const [showSetup, setShowSetup] = React.useState<boolean>(() => !savedTable);
+  const showSetup = React.useState<boolean>(() => !savedTable)[0];
 
-  const [table, setTable] = React.useState(() => {
+  const [table, setTable] = React.useState<TableState>(() => {
     // Read config overrides (difficulty)
     let cfgDifficulty: Difficulty = 'Medium';
     try {
@@ -110,7 +112,7 @@ const Play: React.FC = () => {
       initialChipStack: { 1: 5, 5: 5, 25: 5, 100: 5, 500: 5, 1000: 5 }, // Default chip distribution
       difficulty: cfgDifficulty,
     });
-    return t;
+    return { ...t, lossReason: '', suggestion: '' };
   });
   // No server id when using local engine
   // Local helpers replacing former tableEngine utilities, backed by server state
@@ -139,8 +141,7 @@ const Play: React.FC = () => {
     }
   }, [table?.dealerDrawInProgress, table?.dealerDrawRevealed, table?.dealerDrawCards, table?.players?.length]);
 
-  // Pending setup values (used only when showSetup is true)
-  const [pendingNumBots, setPendingNumBots] = React.useState<number>(() => {
+  const pendingNumBots = (() => {
     try {
       if (typeof window !== 'undefined') {
         const cfg = localStorage.getItem('poker_trainer_config');
@@ -151,55 +152,8 @@ const Play: React.FC = () => {
       }
     } catch { /* ignore */ }
     return GAME_CONFIG.numBots;
-  });
-  const presetBuyins = [1000, 5000, 10000] as const;
-  // Difficulty in setup
-  const [pendingDifficulty, setPendingDifficulty] = React.useState<Difficulty>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const cfg = localStorage.getItem('poker_trainer_config');
-        if (cfg) {
-          const parsed = JSON.parse(cfg);
-          if (typeof parsed.difficulty === 'string') return parsed.difficulty as Difficulty;
-        }
-      }
-    } catch { /* ignore */ }
-    return 'Medium';
-  });
-  const [pendingBuyIn, setPendingBuyIn] = React.useState<number>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const cfg = localStorage.getItem('poker_trainer_config');
-        if (cfg) {
-          const parsed = JSON.parse(cfg);
-          if (typeof parsed.startingChips === 'number') return parsed.startingChips;
-        }
-      }
-    } catch { /* ignore */ }
-    return GAME_CONFIG.startingChips;
-  });
+  })();
 
-  const startGameFromSetup = () => {
-    // Persist chosen config
-    try {
-      localStorage.setItem('poker_trainer_config', JSON.stringify({ numBots: pendingNumBots, startingChips: pendingBuyIn, difficulty: pendingDifficulty }));
-      localStorage.removeItem('poker_trainer_table');
-    } catch { /* ignore */ }
-    // Create a fresh local table using engine
-    const t = createInitialTable({
-      smallBlind: GAME_CONFIG.smallBlind,
-      bigBlind: GAME_CONFIG.bigBlind,
-      numBots: pendingNumBots,
-      startingChips: pendingBuyIn,
-      initialChipStack: { 1: 5, 5: 5, 25: 5, 100: 5, 500: 5, 1000: 5 }, // Default chip distribution
-      difficulty: pendingDifficulty,
-    });
-    setReveal(false);
-    setTable(t);
-    setShowSetup(false);
-  };
-
-  // Quick bet helpers
   const computeQuickRaiseTo = React.useCallback((kind: 'half' | 'twoThirds' | 'pot' | 'allin' | 'min') => {
     const hero = table.players?.find((p: Player) => p.isHero);
     if (!hero) return 0;
@@ -272,7 +226,10 @@ const Play: React.FC = () => {
         }
       }
     }
-    setEndModalResult(heroWon ? 'won' : 'lost');
+    const result = heroWon ? 'won' : 'lost';
+    setEndModalResult(result);
+    const winAmount = Math.abs(table.pot || 0);
+    setHeroWonAmount(heroWon ? winAmount : -winAmount);
     setIsEndModalOpen(true);
     lastModalHandRef.current = table.handNumber;
     // Append a concise result log entry for clarity
@@ -283,7 +240,7 @@ const Play: React.FC = () => {
         { message: heroWon ? 'You won this hand' : 'You lost this hand', time: new Date().toLocaleTimeString(), isImportant: true }
       ]
     }));
-  }, [table.stage, table.handNumber, table.actionLog]);
+  }, [table.stage, table.handNumber, table.actionLog, table.pot]);
 
   // Show toast for EVERY new log entry; use toastShown flag to avoid duplicates
   React.useEffect(() => {
@@ -374,7 +331,7 @@ const Play: React.FC = () => {
       if (next.stage === 'Showdown') setReveal(true);
       setTable(next);
     })();
-  }, [table.botPendingIndex]);
+  }, [table.botPendingIndex, table]);
 
 
   // Animate chips to pot when pot increases
@@ -513,7 +470,7 @@ const Play: React.FC = () => {
     } catch (e) {
       console.error('Failed to process player action locally', e);
     }
-  }, [table]);
+  }, [table, maxBet]);
 
   const handleRaiseClick = () => {
     const hero = table.players?.find((p: Player) => p.isHero);
@@ -661,6 +618,12 @@ const Play: React.FC = () => {
                   <label htmlFor="bots" className="text-white/80 text-base">Number of Bots</label>
                   <span className="text-white font-semibold">{pendingNumBots}</span>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* End of hand modal */}
       {isEndModalOpen && endModalResult && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center">
@@ -697,68 +660,6 @@ const Play: React.FC = () => {
           </div>
         </div>
       )}
-                <input
-                  id="bots"
-                  type="range"
-                  min={1}
-                  max={10}
-                  step={1}
-                  value={pendingNumBots}
-                  onChange={(e) => setPendingNumBots(parseInt(e.target.value))}
-                  className="w-full accent-yellow-400"
-                />
-                <div className="flex justify-between text-white/50 text-base mt-1">
-                  {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (<span key={n}>{n}</span>))}
-                </div>
-              </div>
-
-              <div>
-                <div className="text-white/80 text-base mb-2">Buy-in</div>
-                <div className="flex gap-2 justify-center">
-                  {presetBuyins.map(v => (
-                    <button
-                      key={v}
-                      onClick={() => setPendingBuyIn(v)}
-                      className={`px-3 py-1.5 rounded-lg border transition-colors ${pendingBuyIn === v ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'}`}
-                    >
-                      {v >= 1000 ? `${(v/1000).toFixed(v%1000?1:0)}K` : `$${v}`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Difficulty selector */}
-              <div>
-                <div className="text-white/80 text-base mb-2">Difficulty</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {([
-                    { key: 'Easy', label: '🟢 Easy' },
-                    { key: 'Medium', label: '🟡 Medium' },
-                    { key: 'Hard', label: '🔴 Hard' },
-                  ] as Array<{ key: Difficulty; label: string }>).map(opt => (
-                    <button
-                      key={opt.key}
-                      onClick={() => setPendingDifficulty(opt.key)}
-                      className={`px-3 py-2 rounded-lg border text-base transition-colors ${pendingDifficulty === opt.key ? 'bg-yellow-500/20 border-yellow-400 text-yellow-100' : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'}`}
-                    >
-                      <div className="leading-tight font-semibold">{opt.label}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Start at bottom */}
-              <div className="pt-3">
-                <button
-                  onClick={startGameFromSetup}
-                  className="w-full bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-400/50 text-yellow-100 px-4 py-2 rounded-xl font-semibold transition-all duration-300 hover:scale-[1.02]"
-                >
-                  Start Game
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       
       {/* Toast notifications moved to App root */}
 
@@ -777,7 +678,7 @@ const Play: React.FC = () => {
             className="absolute inset-0 bg-black/70 backdrop-blur-sm" 
             onClick={() => setIsHandsOpen(false)} 
           />
-          <div className="relative z-10 w-full h-full max-w-6xl max-h-[90vh] bg-neutral-900/95 text-white rounded-2xl border border-white/10 shadow-2xl p-4 sm:p-6 flex flex-col overflow-hidden">
+          <div className="relative z-10 w-full h-full max-w-8xl max-h-[90vh] bg-neutral-900/95 text-white rounded-2xl border border-white/10 shadow-2xl p-6 sm:p-8 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between mb-4 sm:mb-6">
               <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
                 Poker Hand Rankings
@@ -789,185 +690,134 @@ const Play: React.FC = () => {
                 Close
               </button>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 text-white/90 text-sm overflow-y-auto pr-2 flex-1 custom-scrollbar">
-              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
-                <div className="mb-2 sm:mb-3 text-center">
-                  <div className="font-bold text-base sm:text-lg text-white">Royal Flush</div>
-                  <div className="text-white/60 text-xs sm:text-sm">A-K-Q-J-10 same suit</div>
-                </div>
-                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
-                  {([
-                    {rank:'A',suit:'hearts'},
-                    {rank:'K',suit:'hearts'},
-                    {rank:'Q',suit:'hearts'},
-                    {rank:'J',suit:'hearts'},
-                    {rank:'10',suit:'hearts'}
-                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
-                    <div key={`rf-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
-                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
-                <div className="mb-2 sm:mb-3 text-center">
-                  <div className="font-bold text-base sm:text-lg text-white">Straight Flush</div>
-                  <div className="text-white/60 text-xs sm:text-sm">Five in a row, same suit</div>
-                </div>
-                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
-                  {([
-                    {rank:'9',suit:'spades'},
-                    {rank:'8',suit:'spades'},
-                    {rank:'7',suit:'spades'},
-                    {rank:'6',suit:'spades'},
-                    {rank:'5',suit:'spades'}
-                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
-                    <div key={`sf-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
-                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
-                <div className="mb-2 sm:mb-3 text-center">
-                  <div className="font-bold text-base sm:text-lg text-white">Four of a Kind</div>
-                  <div className="text-white/60 text-xs sm:text-sm">Four cards same rank</div>
-                </div>
-                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
-                  {([
-                    {rank:'9',suit:'hearts'},
-                    {rank:'9',suit:'spades'},
-                    {rank:'9',suit:'diamonds'},
-                    {rank:'9',suit:'clubs'},
-                    {rank:'K',suit:'hearts'}
-                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
-                    <PokerCard key={`fk-${i}`} rank={c.rank} suit={c.suit} scale={0.5} />
-                  ))}
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
-                <div className="mb-2 sm:mb-3 text-center">
-                  <div className="font-bold text-base sm:text-lg text-white">Full House</div>
-                  <div className="text-white/60 text-xs sm:text-sm">Three of a kind + a pair</div>
-                </div>
-                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
-                  {([
-                    {rank:'10',suit:'hearts'},
-                    {rank:'10',suit:'spades'},
-                    {rank:'10',suit:'diamonds'},
-                    {rank:'7',suit:'clubs'},
-                    {rank:'7',suit:'hearts'}
-                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
-                    <PokerCard key={`fh-${i}`} rank={c.rank} suit={c.suit} scale={0.5} />
-                  ))}
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
-                <div className="mb-2 sm:mb-3 text-center">
-                  <div className="font-bold text-base sm:text-lg text-white">Flush</div>
-                  <div className="text-white/60 text-xs sm:text-sm">Five cards same suit</div>
-                </div>
-                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
-                  {([
-                    {rank:'A',suit:'clubs'},
-                    {rank:'J',suit:'clubs'},
-                    {rank:'8',suit:'clubs'},
-                    {rank:'5',suit:'clubs'},
-                    {rank:'2',suit:'clubs'}
-                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
-                    <PokerCard key={`fl-${i}`} rank={c.rank} suit={c.suit} scale={0.5} />
-                  ))}
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
-                <div className="mb-2 sm:mb-3 text-center">
-                  <div className="font-bold text-base sm:text-lg text-white">Straight</div>
-                  <div className="text-white/60 text-xs sm:text-sm">Five in a row</div>
-                </div>
-                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
-                  {([
-                    {rank:'9',suit:'hearts'},
-                    {rank:'8',suit:'clubs'},
-                    {rank:'7',suit:'diamonds'},
-                    {rank:'6',suit:'spades'},
-                    {rank:'5',suit:'hearts'}
-                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
-                    <PokerCard key={`st-${i}`} rank={c.rank} suit={c.suit} scale={0.5} />
-                  ))}
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
-                <div className="mb-2 sm:mb-3 text-center">
-                  <div className="font-bold text-base sm:text-lg text-white">Three of a Kind</div>
-                  <div className="text-white/60 text-xs sm:text-sm">Three cards same rank</div>
-                </div>
-                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
-                  {([
-                    {rank:'Q',suit:'hearts'},
-                    {rank:'Q',suit:'clubs'},
-                    {rank:'Q',suit:'spades'},
-                    {rank:'7',suit:'hearts'},
-                    {rank:'2',suit:'diamonds'}
-                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
-                    <div key={`tk-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
-                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
-                <div className="mb-2 sm:mb-3 text-center">
-                  <div className="font-bold text-base sm:text-lg text-white">Two Pair</div>
-                  <div className="text-white/60 text-xs sm:text-sm">Two different pairs</div>
-                </div>
-                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
-                  {([
-                    {rank:'K',suit:'hearts'},
-                    {rank:'K',suit:'clubs'},
-                    {rank:'9',suit:'spades'},
-                    {rank:'9',suit:'diamonds'},
-                    {rank:'3',suit:'hearts'}
-                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
-                    <div key={`tp-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
-                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-white/5 to-white/[0.03] border border-white/10 rounded-xl p-3 sm:p-4 flex flex-col min-w-0 transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:scale-[1.02]">
-                <div className="mb-2 sm:mb-3 text-center">
-                  <div className="font-bold text-base sm:text-lg text-white">One Pair</div>
-                  <div className="text-white/60 text-xs sm:text-sm">Two cards same rank</div>
-                </div>
-                <div className="flex items-center justify-center gap-1 sm:gap-2 flex-nowrap overflow-visible">
-                  {([
-                    {rank:'A',suit:'spades'},
-                    {rank:'A',suit:'diamonds'},
-                    {rank:'9',suit:'hearts'},
-                    {rank:'6',suit:'clubs'},
-                    {rank:'2',suit:'spades'}
-                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
-                    <div key={`op-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
-                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
-                    </div>
-                  ))}
-                </div>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 text-white/90 text-sm overflow-y-auto pr-2 flex-1 custom-scrollbar">
+              <HandRankingCard
+                title="Royal Flush"
+                description="A-K-Q-J-10 same suit"
+                cards={[
+                  { rank: 'A', suit: 'hearts' },
+                  { rank: 'K', suit: 'hearts' },
+                  { rank: 'Q', suit: 'hearts' },
+                  { rank: 'J', suit: 'hearts' },
+                  { rank: '10', suit: 'hearts' }
+                ]}
+              />
+
+              <HandRankingCard
+                title="Straight Flush"
+                description="Five in a row, same suit"
+                cards={[
+                  { rank: '9', suit: 'spades' },
+                  { rank: '8', suit: 'spades' },
+                  { rank: '7', suit: 'spades' },
+                  { rank: '6', suit: 'spades' },
+                  { rank: '5', suit: 'spades' }
+                ]}
+              />
+
+              <HandRankingCard
+                title="Four of a Kind"
+                description="Four cards same rank"
+                cards={[
+                  { rank: '9', suit: 'hearts' },
+                  { rank: '9', suit: 'spades' },
+                  { rank: '9', suit: 'diamonds' },
+                  { rank: '9', suit: 'clubs' },
+                  { rank: 'K', suit: 'hearts' }
+                ]}
+                scale={0.5}
+              />
+
+              <HandRankingCard
+                title="Full House"
+                description="Three of a kind + a pair"
+                cards={[
+                  { rank: '10', suit: 'hearts' },
+                  { rank: '10', suit: 'spades' },
+                  { rank: '10', suit: 'diamonds' },
+                  { rank: '7', suit: 'clubs' },
+                  { rank: '7', suit: 'hearts' }
+                ]}
+                scale={0.5}
+              />
+
+              <HandRankingCard
+                title="Flush"
+                description="Five cards same suit"
+                cards={[
+                  { rank: 'A', suit: 'clubs' },
+                  { rank: 'J', suit: 'clubs' },
+                  { rank: '8', suit: 'clubs' },
+                  { rank: '5', suit: 'clubs' },
+                  { rank: '2', suit: 'clubs' }
+                ]}
+                scale={0.5}
+              />
+
+              <HandRankingCard
+                title="Straight"
+                description="Five in a row"
+                cards={[
+                  { rank: '9', suit: 'hearts' },
+                  { rank: '8', suit: 'clubs' },
+                  { rank: '7', suit: 'diamonds' },
+                  { rank: '6', suit: 'spades' },
+                  { rank: '5', suit: 'hearts' }
+                ]}
+                scale={0.5}
+              />
+
+              <HandRankingCard
+                title="Three of a Kind"
+                description="Three cards same rank"
+                cards={[
+                  { rank: 'Q', suit: 'hearts' },
+                  { rank: 'Q', suit: 'clubs' },
+                  { rank: 'Q', suit: 'spades' },
+                  { rank: '7', suit: 'hearts' },
+                  { rank: '2', suit: 'diamonds' }
+                ]}
+              />
+
+              <HandRankingCard
+                title="Two Pair"
+                description="Two different pairs"
+                cards={[
+                  { rank: 'K', suit: 'hearts' },
+                  { rank: 'K', suit: 'clubs' },
+                  { rank: '9', suit: 'spades' },
+                  { rank: '9', suit: 'diamonds' },
+                  { rank: '3', suit: 'hearts' }
+                ]}
+              />
+
+              <HandRankingCard
+                title="One Pair"
+                description="Two cards same rank"
+                cards={[
+                  { rank: 'A', suit: 'spades' },
+                  { rank: 'A', suit: 'diamonds' },
+                  { rank: '9', suit: 'hearts' },
+                  { rank: '6', suit: 'clubs' },
+                  { rank: '2', suit: 'spades' }
+                ]}
+              />
+
               <div className="bg-white/5 border border-white/10 rounded-lg p-1.5 flex flex-col min-w-0">
                 <div className="mb-1 text-center">
                   <div className="font-semibold truncate">High Card</div>
                   <div className="text-white/70 text-xs truncate">No matching cards</div>
                 </div>
                 <div className="flex items-center justify-center -space-x-3 flex-nowrap overflow-visible">
-                  {([
-                    {rank:'A',suit:'hearts'},
-                    {rank:'J',suit:'spades'},
-                    {rank:'8',suit:'diamonds'},
-                    {rank:'5',suit:'clubs'},
-                    {rank:'2',suit:'hearts'}
-                  ] as Array<{rank: Rank; suit: Suit}>).map((c,i)=> (
+                  {[
+                    {rank:'A' as Rank, suit:'hearts' as Suit},
+                    {rank:'J' as Rank, suit:'spades' as Suit},
+                    {rank:'8' as Rank, suit:'diamonds' as Suit},
+                    {rank:'5' as Rank, suit:'clubs' as Suit},
+                    {rank:'2' as Rank, suit:'hearts' as Suit}
+                  ].map((c,i) => (
                     <div key={`hc-${i}`} className="flex-shrink-0 hover:-translate-y-1 transition-transform duration-200">
-                      <PokerCard rank={c.rank} suit={c.suit} scale={0.6} className="sm:scale-75 md:scale-90" />
+                      <PokerCard rank={c.rank} suit={c.suit} scale={0.55} className="sm:scale-75 md:scale-90 -mx-0.5" />
                     </div>
                   ))}
                 </div>
@@ -1150,7 +1000,7 @@ const Play: React.FC = () => {
                         className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-500"
                         disabled={raiseAmount < (() => {
                           const highest = maxBet(table);
-                          return Math.max(table.bigBlind || 0, highest + (table.bigBlound || 0));
+                          return Math.max(table.bigBlind || 0, highest + (table.bigBlind || 0));
                         })()}
                       >
                         Raise to ${raiseAmount}
@@ -1160,7 +1010,7 @@ const Play: React.FC = () => {
                 </div>
               )}
               </div>
-</div>
+            </div>
           )}
           
           
@@ -1213,7 +1063,8 @@ const Play: React.FC = () => {
                         <PokerCard
                           suit={table.board[i].suit}
                           rank={table.board[i].rank}
-                          className="w-full h-full"
+                          className="w-full h-full [--card-rank-size:0.9rem] [--card-suit-size:1.4rem]"
+                          scale={0.9}
                         />
                       ) : (
                         <span className="text-white/30 text-base sm:text-base md:text-lg font-bold">{i + 1}</span>
@@ -1295,24 +1146,174 @@ const Play: React.FC = () => {
         />)
       )}
 
-      {/* End-of-hand modal */}
+      {/* Enhanced End-of-hand Results Dashboard */}
       {isEndModalOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70">
-          <div className="bg-zinc-900 text-white rounded-xl shadow-2xl border border-white/10 w-[90%] max-w-md p-6 text-center">
-            <div className="text-2xl font-extrabold mb-2">
-              {endModalResult === 'won' ? 'You won this hand' : endModalResult === 'lost' ? 'You lost this hand' : 'Hand finished'}
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-4 overflow-y-auto">
+          <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 text-white rounded-xl shadow-2xl border border-white/10 w-full max-w-7xl overflow-hidden my-8 mx-4">
+            {/* Header */}
+            <div className={`relative p-6 text-center ${endModalResult === 'won' ? 'bg-gradient-to-r from-green-600/30 to-emerald-600/30' : 'bg-gradient-to-r from-red-600/30 to-rose-600/30'}`}>
+              <div className="max-w-5xl mx-auto px-6">
+                <div className="text-4xl font-extrabold mb-2">
+                  {endModalResult === 'won' ? 'You Won!' : 'Hand Over'}
+                </div>
+                <div className="text-xl opacity-90 mb-2">
+                  {endModalResult === 'won' 
+                    ? 'You won the hand!'
+                    : 'Hand completed'}
+                </div>
+                {heroWonAmount !== 0 && (
+                  <>
+                    <div className={`mt-2 text-2xl font-bold ${endModalResult === 'won' ? 'text-green-300' : 'text-red-300'}`}>
+                      {endModalResult === 'won' ? `+$${Math.abs(heroWonAmount).toLocaleString()}` : `-$${Math.abs(heroWonAmount).toLocaleString()}`}
+                    </div>
+                    {endModalResult !== 'won' && table.lossReason && (
+                      <div className="mt-3 px-4 py-2 bg-red-900/30 rounded-lg border border-red-500/30 max-w-md mx-auto">
+                        <div className="font-medium text-red-200">Loss Analysis:</div>
+                        <div className="text-red-100/90 text-sm">{table.lossReason}</div>
+                        {table.suggestion && (
+                          <div className="mt-1 text-yellow-100/80 text-xs">
+                            <span className="font-medium">Suggestion:</span> {table.suggestion}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              
+              {/* Close button */}
+              <button
+                onClick={() => setIsEndModalOpen(false)}
+                className="absolute top-4 right-4 p-2 rounded-full hover:bg-white/10 transition-colors"
+                aria-label="Close"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
-            <div className="text-sm opacity-80 mb-6">Press Continue to deal the next hand.</div>
-            <button
-              className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-semibold shadow"
-              onClick={() => {
-                setIsEndModalOpen(false);
-                setReveal(false);
-                setTable((prev: TableState) => startNewHand(prev));
-              }}
-            >
-              Continue
-            </button>
+            
+            {/* Content */}
+            <div className="p-8 space-y-8 max-h-[75vh] overflow-y-auto">
+              {/* Main Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Pot Size */}
+                <div className="bg-zinc-800/50 rounded-xl p-5 border border-white/10 hover:border-white/20 transition-colors">
+                  <div className="text-sm font-medium text-zinc-400 mb-1">Total Pot</div>
+                  <div className="text-2xl font-bold">${table.pot?.toLocaleString() || '0'}</div>
+                </div>
+                
+                {/* Your Chips */}
+                <div className="bg-zinc-800/50 rounded-xl p-5 border border-white/10 hover:border-white/20 transition-colors">
+                  <div className="text-sm font-medium text-zinc-400 mb-1">Your Chips</div>
+                  <div className="text-2xl font-bold">${hero?.chips?.toLocaleString() || '0'}</div>
+                </div>
+                
+                {/* Net Result */}
+                <div className={`bg-zinc-800/50 rounded-xl p-5 border ${endModalResult === 'won' ? 'border-green-500/30 hover:border-green-500/50' : 'border-red-500/30 hover:border-red-500/50'} transition-colors`}>
+                  <div className="text-sm font-medium text-zinc-400 mb-1">Net Result</div>
+                  <div className={`text-2xl font-bold ${endModalResult === 'won' ? 'text-green-400' : 'text-red-400'}`}>
+                    {endModalResult === 'won' ? '+' : '-'}${Math.abs(heroWonAmount).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 -mt-4">
+                {/* Your Cards */}
+                <div className="bg-zinc-800/40 rounded-xl p-4 border border-white/5 hover:border-white/10 transition-colors">
+                  <div className="text-sm font-medium text-zinc-400 mb-3 px-1">Your Cards</div>
+                  <div className="flex justify-center -mx-1.5 space-x-2">
+                    {hero?.holeCards?.map((card: { rank: Rank; suit: Suit }, idx: number) => (
+                      <div key={idx} className="w-16 h-24 sm:w-20 sm:h-28 md:w-24 md:h-36 transform hover:-translate-y-2 transition-transform duration-200">
+                        <PokerCard 
+                          rank={card.rank} 
+                          suit={card.suit} 
+                          isFaceDown={false} 
+                          className="w-full h-full"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Community Cards */}
+                <div className="bg-zinc-800/40 rounded-xl p-4 border border-white/5 hover:border-white/10 transition-colors">
+                  <div className="text-sm font-medium text-zinc-400 mb-3 px-1">Community Cards</div>
+                  <div className="flex justify-center -mx-1.5 space-x-2">
+                    {table.communityCards?.map((card: { rank: Rank; suit: Suit }, idx: number) => (
+                      <div key={idx} className="w-16 h-24 sm:w-20 sm:h-28 md:w-24 md:h-36 transform hover:-translate-y-2 transition-transform duration-200">
+                        <PokerCard 
+                          rank={card.rank} 
+                          suit={card.suit} 
+                          isFaceDown={false} 
+                          className="w-full h-full"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Players */}
+              <div className="bg-zinc-800/30 rounded-xl p-5 border border-white/5">
+                <div className="text-sm font-medium text-zinc-400 mb-3">Players</div>
+                <div className="space-y-4">
+                  {table.players.map((player: { name: string; chips: number; bet: number; hasFolded: boolean; isHero?: boolean }, idx: number) => {
+                    const isWinner = player.isHero && endModalResult === 'won';
+                    const isActive = !player.hasFolded;
+                    
+                    return (
+                      <div 
+                        key={idx} 
+                        className={`flex items-center justify-between p-3 rounded-lg ${isWinner ? 'bg-gradient-to-r from-yellow-500/10 to-amber-500/10 border border-yellow-500/30' : 'bg-zinc-700/30 border border-white/5'} ${!isActive && 'opacity-60'}`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${isWinner ? 'bg-yellow-500 text-yellow-900' : 'bg-zinc-600 text-white'}`}>
+                            {player.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-medium text-white">{player.name} {player.isHero && '(You)'}</div>
+                            <div className="text-xs text-zinc-400">{isActive ? 'Active' : 'Folded'}</div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-mono">${player.chips.toLocaleString()}</div>
+                          {player.bet > 0 && (
+                            <div className="text-xs text-zinc-400">Bet: ${player.bet.toLocaleString()}</div>
+                          )}
+                          {isWinner && (
+                            <div className="text-xs font-medium text-yellow-400 mt-1">
+                              Winner!
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="px-8 py-5 bg-zinc-900/50 border-t border-white/5 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="text-sm text-zinc-500">
+                Hand #{table.handNumber || '1'}
+              </div>
+              <div className="flex space-x-3 w-full sm:w-auto">
+                <button
+                  onClick={() => {
+                    setIsEndModalOpen(false);
+                    handleEndGame();
+                  }}
+                  className="px-6 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-medium rounded-lg shadow-md hover:shadow-lg transition-all duration-200 flex-1 sm:flex-none flex items-center justify-center space-x-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                  Start New Game
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
