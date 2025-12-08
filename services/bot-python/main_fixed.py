@@ -19,25 +19,11 @@ class CardModel(BaseModel):
     rank: str
     suit: str
 
-class ActionModel(BaseModel):
-    playerIndex: int
-    action: str  # "fold", "check", "call", "raise", "allin"
-    amount: Optional[int] = None
-    street: str  # "PreFlop", "Flop", "Turn", "River"
-
-class PlayerStats(BaseModel):
-    vpip: Optional[float] = None  # Voluntarily Put In Pot
-    pfr: Optional[float] = None   # Pre-Flop Raise
-    af: Optional[float] = None    # Aggression Factor
-    hands: Optional[int] = None   # Number of hands tracked
-
 class PlayerModel(BaseModel):
     chips: int
     bet: int
     hasFolded: bool = False
     isHero: bool = False
-    position: Optional[str] = None  # "UTG", "MP", "CO", "BTN", "SB", "BB"
-    stats: Optional[PlayerStats] = None
 
 class BotInfo(BaseModel):
     chips: int
@@ -45,20 +31,8 @@ class BotInfo(BaseModel):
     holeCards: List[CardModel]
     positionIndex: int
     seatIndex: int
-    position: Optional[str] = None  # "UTG", "MP", "CO", "BTN", "SB", "BB"
     personality: Optional[str] = 'Balanced'
     difficulty: Optional[str] = 'Medium'
-
-class GameContext(BaseModel):
-    dealerPosition: int
-    playersActive: int
-    effectiveStack: int
-    street: str  # "PreFlop", "Flop", "Turn", "River"
-    actionHistory: List[ActionModel] = []
-    minRaise: int
-    maxRaise: int
-    canCheck: bool = True
-    canRaise: bool = True
 
 class DecideRequest(BaseModel):
     stage: str
@@ -70,7 +44,6 @@ class DecideRequest(BaseModel):
     bot: BotInfo
     players: List[PlayerModel]
     board: List[CardModel] = []
-    context: GameContext
 
 class DecideResponse(BaseModel):
     action: str

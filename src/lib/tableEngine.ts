@@ -3,6 +3,7 @@ import type { ChipStack, DealConfig, Difficulty, Personality, Player, TableState
 import type { Card } from './pokerService';
 import type { DeckCard } from '../types/cards';
 import { createStandardDeck } from './deck';
+import { pythonBotService } from './pythonBotService';
 import { shuffleDeck } from './shuffle';
 
 function generateId(prefix: string): string {
@@ -618,8 +619,39 @@ export async function performBotActionNow(state: TableState): Promise<TableState
   
   console.log(`[performBotActionNow] Processing bot action for player ${botIndex}`);
   
-  // Use the existing bot logic from Table Engine directly
-  console.log('[performBotActionNow] Using Table Engine bot logic');
+  // Check which bot service to use
+  const selectedBot = localStorage.getItem('selectedBot') || 'typescript';
+  console.log(`[performBotActionNow] Using bot service: ${selectedBot}`);
+  
+  if (selectedBot === 'python') {
+    try {
+      // Use Python bot service
+      console.log('[performBotActionNow] Using Python bot service');
+      const decision = await pythonBotService.makeDecision(state, botIndex);
+      
+      // Convert decision format
+      let action: 'Fold' | 'Call' | 'Raise' | 'AllIn';
+      switch (decision.action) {
+        case 'fold': action = 'Fold'; break;
+        case 'call': action = 'Call'; break;
+        case 'raise': action = 'Raise'; break;
+        case 'allin': action = 'AllIn'; break;
+        default: action = 'Fold';
+      }
+      
+      const result = applyExternalBotDecision(state, botIndex, { 
+        action, 
+        raiseTo: decision.amount 
+      });
+      return processNextAction({ ...result, botPendingIndex: null });
+    } catch (error) {
+      console.error('[performBotActionNow] Python bot error, falling back to TypeScript:', error);
+      // Fallback to TypeScript bot
+    }
+  }
+  
+  // Use TypeScript bot service (default or fallback)
+  console.log('[performBotActionNow] Using TypeScript bot service');
   const result = decideAndApplyBotAction(state, botIndex);
   return processNextAction({ ...result, botPendingIndex: null });
 }
