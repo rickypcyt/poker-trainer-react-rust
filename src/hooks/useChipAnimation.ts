@@ -25,7 +25,7 @@ export const useChipAnimation = (
         if (m) actorName = m[1];
       }
       const actor = table.players?.find((p: Player) => (p.isHero ? 'You' : p.name) === actorName) || null;
-      const sourceEl = actor ? chipAnchorsRef.current[actor.id] : null;
+      const sourceEl = actor && chipAnchorsRef.current ? chipAnchorsRef.current[actor.id] : null;
       
       // Animate towards the Dealer
       const targetEl = dealerRef.current;

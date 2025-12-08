@@ -398,9 +398,6 @@ const Play: React.FC = () => {
         <GameControls
           table={table}
           isHeroTurn={isHeroTurn}
-          toCallVal={toCallVal}
-          minRaiseToVal={minRaiseToVal}
-          highestBet={highestBet}
           handlePlayerAction={handlePlayerAction}
           handleQuickBet={handleQuickBet}
           getHeroIndex={getHeroIndex}

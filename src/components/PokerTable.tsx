@@ -1,17 +1,18 @@
-import React from 'react';
-import { CHIP_DENOMS, CHIP_COLOR_CLASS } from '../constants/chips';
-import type { TableState, Player, ChipStack } from '../types/table';
+import { CHIP_COLOR_CLASS, CHIP_DENOMS } from '../constants/chips';
+import type { ChipStack as ChipStackType, Player, TableState } from '../types/table';
+
 import ChipStack from './ChipStack';
 import Dealer from './Dealer';
 import PlayerSeat from './PlayerSeat';
 import PokerCard from './PokerCard';
+import React from 'react';
 
 interface PokerTableProps {
   table: TableState;
   reveal: boolean;
   isDealing: boolean;
-  potRef: React.RefObject<HTMLDivElement | null>;
-  dealerRef: React.RefObject<HTMLDivElement | null>;
+  potRef: React.Ref<HTMLDivElement>;
+  dealerRef: React.Ref<HTMLDivElement>;
   chipAnchorsRef: React.RefObject<Record<string, HTMLDivElement | null>>;
   seatActions: Record<string, string>;
   isBotThinking: boolean;
@@ -83,8 +84,8 @@ export const PokerTable: React.FC<PokerTableProps> = ({
   }, [bots, players]);
 
   // Use exact pot breakdown tracked by the engine
-  const potChipStack: ChipStack = React.useMemo(() => {
-    return table.potStack || {} as ChipStack;
+  const potChipStack: ChipStackType = React.useMemo(() => {
+    return table.potStack || {} as ChipStackType;
   }, [table.potStack]);
 
   return (
@@ -177,7 +178,7 @@ export const PokerTable: React.FC<PokerTableProps> = ({
               gameStage={table.stage}
               isThinking={isBotThinking && currentBotIndex === players?.indexOf(p)}
               actionText={seatActions[p.id]}
-              chipAnchorRef={(el) => { chipAnchorsRef.current[p.id] = el; }}
+              chipAnchorRef={(el) => { if (chipAnchorsRef.current) chipAnchorsRef.current[p.id] = el; }}
               isHighlighted={table.dealerDrawInProgress && table.dealerDrawRevealed && (players?.indexOf(p) === (table.dealingState?.highCardPlayerIndex ?? table.dealerIndex))}
             />
           </div>
@@ -207,7 +208,7 @@ export const PokerTable: React.FC<PokerTableProps> = ({
                 gameStage={table.stage}
                 isThinking={isBotThinking && currentBotIndex === idx}
                 actionText={seatActions[p.id]}
-                chipAnchorRef={(el) => { chipAnchorsRef.current[p.id] = el; }}
+                chipAnchorRef={(el) => { if (chipAnchorsRef.current) chipAnchorsRef.current[p.id] = el; }}
                 compactLevel={compactLevel as 'normal' | 'compact' | 'ultra'}
                 isHighlighted={table.dealerDrawInProgress && table.dealerDrawRevealed && (idx === (table.dealingState?.highCardPlayerIndex ?? table.dealerIndex))}
               />

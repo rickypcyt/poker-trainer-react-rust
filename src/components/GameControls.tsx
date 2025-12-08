@@ -4,9 +4,6 @@ import type { TableState } from '../types/table';
 interface GameControlsProps {
   table: TableState;
   isHeroTurn: boolean;
-  toCallVal: number;
-  minRaiseToVal: number;
-  highestBet: number;
   handlePlayerAction: (action: 'Fold' | 'Call' | 'Raise', amount?: number) => void;
   handleQuickBet: (kind: 'half' | 'twoThirds' | 'pot' | 'allin' | 'min') => void;
   getHeroIndex: (t: TableState) => number;
@@ -20,9 +17,6 @@ interface GameControlsProps {
 export const GameControls: React.FC<GameControlsProps> = ({
   table,
   isHeroTurn,
-  toCallVal,
-  minRaiseToVal,
-  highestBet,
   handlePlayerAction,
   handleQuickBet,
   getHeroIndex,
