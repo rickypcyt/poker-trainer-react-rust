@@ -1,6 +1,8 @@
 import React from 'react';
 import type { TableState } from '../types/table';
 
+type TableStage = TableState['stage'];
+
 interface GameControlsProps {
   table: TableState;
   isHeroTurn: boolean;
@@ -15,6 +17,8 @@ interface GameControlsProps {
   showSetup?: boolean;
   onRevealHighestCard?: () => void;
   onStartNewHand?: () => void;
+  onShowRoundSummary?: () => void;
+  onNewHand?: () => void;
 }
 
 export const GameControls: React.FC<GameControlsProps> = ({
@@ -31,6 +35,8 @@ export const GameControls: React.FC<GameControlsProps> = ({
   showSetup = false,
   onRevealHighestCard,
   onStartNewHand,
+  onShowRoundSummary,
+  onNewHand,
 }) => {
   const handleRaiseClick = () => {
     const hero = table.players?.find((p) => p.isHero);
@@ -95,50 +101,73 @@ export const GameControls: React.FC<GameControlsProps> = ({
         </div>
       ) : (
         <>
-          {isHeroTurn && (
-            <div className="flex items-center gap-1 px-2 py-1 rounded-xl bg-white/5 border border-white/10">
+          {/* Showdown controls */}
+          {table.stage === 'Showdown' as TableStage && !showSetup ? (
+            <div className="flex items-center justify-center gap-3 flex-1">
               <button
-                className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15 transition-colors"
-                onClick={() => handleQuickBet('half')}
-              >1/2 Pot</button>
+                className="px-4 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 font-medium border border-blue-500/30 transition-colors"
+                onClick={onShowRoundSummary}
+              >
+                Round Summary
+              </button>
               <button
-                className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15 transition-colors"
-                onClick={() => handleQuickBet('twoThirds')}
-              >2/3 Pot</button>
-              <button
-                className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15 transition-colors"
-                onClick={() => handleQuickBet('pot')}
-              >Pot</button>
-              <button
-                className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15 transition-colors"
-                onClick={() => handleQuickBet('min')}
-              >Min</button>
-              <button
-                className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15 transition-colors"
-                onClick={() => handleQuickBet('allin')}
-              >All-in</button>
+                className="px-4 py-2 rounded-xl bg-green-600/20 hover:bg-green-600/30 text-green-300 font-medium border border-green-500/30 transition-colors"
+                onClick={onNewHand}
+              >
+                New Hand
+              </button>
             </div>
+          ) : (
+            <>
+              {isHeroTurn && (
+                <div className="flex items-center gap-1 px-2 py-1 rounded-xl bg-white/5 border border-white/10">
+                  <button
+                    className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15 transition-colors"
+                    onClick={() => handleQuickBet('half')}
+                  >1/2 Pot</button>
+                  <button
+                    className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15 transition-colors"
+                    onClick={() => handleQuickBet('twoThirds')}
+                  >2/3 Pot</button>
+                  <button
+                    className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15 transition-colors"
+                    onClick={() => handleQuickBet('pot')}
+                  >Pot</button>
+                  <button
+                    className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15 transition-colors"
+                    onClick={() => handleQuickBet('min')}
+                  >Min</button>
+                  <button
+                    className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm border border-white/15 transition-colors"
+                    onClick={() => handleQuickBet('allin')}
+                  >All-in</button>
+                </div>
+              )}
+            </>
           )}
-          <div className="flex items-center gap-1">
+          
+          {/* Regular game controls (not showdown) */}
+          {table.stage !== 'Showdown' as TableStage && (
+            <div className="flex items-center gap-1">
             <button 
               className={`font-semibold px-4 py-3 rounded-xl transition-colors ${
-                table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
+                table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)
                   ? 'bg-white/5 text-white/50 cursor-not-allowed border border-white/10'
                   : 'bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30'
               }`}
               onClick={() => handlePlayerActionWithDialog('Fold')}
-              disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
+              disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)}
             >
               Fold
             </button>
             <button 
               className={`font-semibold px-4 py-3 rounded-xl transition-colors ${
-                table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
+                table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)
                   ? 'bg-white/5 text-white/50 cursor-not-allowed border border-white/10'
                   : 'bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30'
               }`}
               onClick={() => handlePlayerActionWithDialog('Call')}
-              disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
+              disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)}
             >
               {(() => {
                 const hero = getHero();
@@ -150,12 +179,12 @@ export const GameControls: React.FC<GameControlsProps> = ({
             </button>
             <button 
               className={`font-semibold px-4 py-3 rounded-xl transition-colors ${
-                table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)
+                table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)
                   ? 'bg-white/5 text-white/50 cursor-not-allowed border border-white/10'
                   : 'bg-green-600/20 hover:bg-green-600/30 text-green-300 border border-green-500/30'
               }`}
               onClick={handleRaiseClick}
-              disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' || table.currentPlayerIndex !== getHeroIndex(table)}
+              disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)}
             >
               {(() => {
                 const hero = getHero();
@@ -167,6 +196,7 @@ export const GameControls: React.FC<GameControlsProps> = ({
               })()}
             </button>
           </div>
+          )}
         </>
       )}
       </div>

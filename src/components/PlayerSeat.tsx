@@ -1,5 +1,4 @@
 import type { Card } from '../lib/pokerService';
-import ChipStack from './ChipStack';
 import type { Player } from '../types/table';
 import PokerCard from './PokerCard';
 import React from 'react';
@@ -79,8 +78,8 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
   const formatChips = (v: number) => {
     return v.toLocaleString();
   };
-  // Decide if we should render the cards row
-  const showCardRow = isHero || (shouldShowCards && botDensity !== 'ultra');
+  // Decide if we should render the cards row - always show for all players
+  const showCardRow = true;
   const isAllIn = player.chips === 0 && player.bet > 0;
 
   // Position action bubble: side for left/right, above for top/bottom
@@ -88,32 +87,29 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
     ? 'top-1/2 -translate-y-1/2 left-full ml-1'
     : position === 'right'
       ? 'top-1/2 -translate-y-1/2 right-full mr-1'
-      : (isHero ? '-top-6 left-1/2 -translate-x-1/2' : '-top-5 left-1/2 -translate-x-1/2');
+      : (isHero ? '-top-8 left-1/2 -translate-x-1/2' : '-top-7 left-1/2 -translate-x-1/2');
 
   return (
-    <div data-position={position} className={`relative flex items-center ${isHero ? 'gap-2 p-1' : (botDensity === 'ultra' ? 'gap-0.5 p-0.5' : 'gap-1 p-0.5')} ${isHero ? 'bg-black/20' : 'bg-black/30 border border-white/20'} rounded-lg ${activeClass} ${highlightClass} ${foldedClass} ${isHighlighted ? 'w-auto min-w-[180px]' : 'min-w-[140px]'}`}>
+    <div data-position={position} className={`relative flex items-center justify-center ${isHero ? 'gap-2' : (botDensity === 'ultra' ? 'gap-1' : 'gap-1.5')} ${isHero ? 'bg-black/20' : 'bg-black/30 border border-white/20'} rounded-lg ${activeClass} ${highlightClass} ${foldedClass} ${isHighlighted ? 'w-auto min-w-[180px]' : 'min-w-[160px]'} ${isHero ? 'p-1' : 'p-2'}`}>
       {/* Action bubble */}
       {actionText && (
         <div className={`absolute ${bubbleSideClass} ${isHero ? 'text-base px-3 py-1' : 'text-[11px] px-2 py-0.5'} font-semibold text-white bg-neutral-900/90 border border-white/20 rounded-full shadow-lg whitespace-nowrap`}>
           {actionText}
         </div>
       )}
-      {/* Left: Chip column */}
-      <div className="hidden">
-        <ChipStack stack={player.chipStack} size={isHero ? 'sm' : 'xs'} columns={3} />
-      </div>
+      {/* Left: Chip column - REMOVED */}
       {/* Right: Header + Cards */}
       <div className="group relative flex flex-col items-center">
-        <div className={`flex flex-col items-center justify-center ${isHero ? 'gap-1' : (botDensity === 'ultra' ? 'gap-0.5' : 'gap-1')}`}>
-          <div className={`flex items-center justify-center ${isHero ? 'gap-2' : (botDensity === 'ultra' ? 'gap-0.5' : 'gap-1')}`}>
+        <div className={`flex flex-col items-center justify-center ${isHero ? 'gap-1' : 'gap-1'}`}>
+          <div className={`flex items-center justify-center ${isHero ? 'gap-2' : 'gap-1'}`}>
             {tag && (
               <span className={`w-6 h-6 rounded-full text-[9px] font-bold text-white border ${tagClass} flex items-center justify-center`}>
                 {tag}
               </span>
             )}
-            <span className={`text-white/90 font-bold ${isHero ? 'text-base' : (botDensity === 'ultra' ? 'text-[12px]' : 'text-[13px]')} tracking-tight ${isHero ? 'max-w-[88px]' : 'max-w-[72px]'} truncate`} title={!isHero ? name : undefined}>{botName}</span>
+            <span className={`text-white/90 font-bold ${isHero ? 'text-base' : 'text-[14px]'} tracking-tight ${isHero ? 'max-w-[88px]' : 'max-w-[80px]'} truncate`} title={!isHero ? name : undefined}>{botName}</span>
           </div>
-          <span className={`text-white/80 font-semibold ${isHero ? 'text-base' : (botDensity === 'ultra' ? 'text-[11px]' : 'text-[12px]')} font-mono tracking-tight whitespace-nowrap`}>${formatChips(player.chips)}</span>
+          <span className={`text-white/80 font-semibold ${isHero ? 'text-base' : 'text-[13px]'} font-mono tracking-tight whitespace-nowrap`}>${formatChips(player.chips)}</span>
         </div>
         {isThinking && !player.hasFolded && (
           <div className="mt-2 flex items-center justify-center gap-1 text-[10px] text-white/80">
@@ -150,9 +146,9 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
         )} */}
         {/* Cards - beneath header; show 1 card for dealer draw, 2 for regular play */}
         {showCardRow && (
-          <div className={`flex ${isHero ? 'gap-1' : 'gap-0.5'} mt-1`}>
+          <div className={`flex ${isHero ? 'gap-1' : 'gap-2'} mt-1`}>
             {cards.map((c, i) => {
-              const overlap = isHero ? -6 : (botDensity === 'ultra' ? -12 : botDensity === 'compact' ? -10 : -8); // reduced overlap for more spacing
+              const overlap = isHero ? -6 : -4; // less overlap for more separation between bot cards
               const hoverCls = isHero ? 'hover:z-10 hover:transform hover:translate-y-[-5px]' : '';
               const angle = isHero ? 0 : 0; // removed rotation for bots to keep cards straight
               const pointerCls = isHero ? '' : 'pointer-events-none';
@@ -165,11 +161,7 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
                   scale={
                     isHero
                       ? 0.95
-                      : (
-                          shouldShowCards
-                            ? (botDensity === 'ultra' ? 0.85 : botDensity === 'compact' ? 0.90 : 0.95) // increased sizes for bots
-                            : (botDensity === 'ultra' ? 0.80 : botDensity === 'compact' ? 0.85 : 0.90) // increased sizes for face-down
-                          )
+                      : 1.0 // Same size as hero for all bots
                   }
                   aspectRatio={
                     isHero 
@@ -178,17 +170,16 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
                   }
                   className={`${hoverCls} transition-all duration-200`}
                   style={{
-                    '--card-rank-size': isHero || shouldShowCards ? '1rem' : '0.9rem',
-                    '--card-suit-size': isHero || shouldShowCards ? '1.5rem' : '1.3rem'
+                    '--card-rank-size': '1rem', // Same size as hero
+                    '--card-suit-size': '1.5rem' // Same size as hero
                   } as React.CSSProperties}
                 />
               </div>
             );})}
           </div>
         )}
-        <div className="mt-1" ref={chipAnchorRef}>
-          <ChipStack stack={player.chipStack} size={isHero ? 'sm' : 'sm'} columns={2} />
-        </div>
+        {/* ChipStack removed - ref kept for positioning */}
+        <div className="mt-1" ref={chipAnchorRef}></div>
       </div>
     </div>
   );

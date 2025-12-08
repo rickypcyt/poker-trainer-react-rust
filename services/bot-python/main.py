@@ -140,50 +140,163 @@ def estimate_equity_vs_range(hole: List[CardModel], board: List[CardModel], num_
 
     return hero_score / total if total > 0 else 0.5
 
+def analyze_opponent_ranges(req: DecideRequest) -> Dict[str, float]:
+    """Analyze opponent ranges based on stats and action history."""
+    active_players = [p for p in req.players if not p.hasFolded and not p.isHero]
+    
+    # Base ranges by position
+    position_ranges = {
+        "UTG": 0.15,  # Tight
+        "MP": 0.20,
+        "CO": 0.25,
+        "BTN": 0.30,  # Loose
+        "SB": 0.35,
+        "BB": 0.40   # Very loose (defending blind)
+    }
+    
+    # Adjust based on stats if available
+    avg_tightness = 0.25
+    for player in active_players:
+        if player.stats and player.stats.vpip:
+            avg_tightness += player.stats.vpip / 100
+    
+    return {"avg_range": avg_tightness / len(active_players) if active_players else 0.25}
+
+def calculate_spr(req: DecideRequest) -> float:
+    """Calculate Stack-to-Pot Ratio."""
+    effective_stack = req.context.effectiveStack
+    return effective_stack / req.pot if req.pot > 0 else float('inf')
+
+def analyze_action_patterns(req: DecideRequest) -> Dict[str, Any]:
+    """Analyze betting patterns and aggression."""
+    street_actions = [a for a in req.context.actionHistory if a.street == req.stage]
+    
+    aggression_count = sum(1 for a in street_actions if a.action in ["raise", "allin"])
+    calls_count = sum(1 for a in street_actions if a.action == "call")
+    
+    return {
+        "aggressive_actions": aggression_count,
+        "passive_actions": calls_count,
+        "total_actions": len(street_actions)
+    }
+
 def choose_action(req: DecideRequest) -> DecideResponse:
-    """Simple decision logic based on equity and pot odds."""
-    equity = estimate_equity_vs_range(req.bot.holeCards, req.board, len([p for p in req.players if not p.hasFolded and not p.isHero]))
+    """Enhanced decision logic with full game context."""
+    # Basic calculations
+    equity = estimate_equity_vs_range(
+        req.bot.holeCards, 
+        req.board, 
+        len([p for p in req.players if not p.hasFolded and not p.isHero])
+    )
+    
     to_call = req.toCall if req.toCall is not None else max(0, req.highestBet - req.bot.bet)
     pot_odds = to_call / (req.pot + to_call) if (req.pot + to_call) > 0 else 0
-
-    # Basic logic
+    
+    # Enhanced context analysis
+    opponent_analysis = analyze_opponent_ranges(req)
+    spr = calculate_spr(req)
+    action_patterns = analyze_action_patterns(req)
+    
+    # Bot characteristics
     persona = req.bot.personality or 'Balanced'
     difficulty = req.bot.difficulty or 'Medium'
+    position = req.bot.position or 'BB'
     
     rationale_parts = [
         f"equity={equity:.3f}",
         f"pot_odds={pot_odds:.3f}",
         f"margin={equity - pot_odds:.3f}",
+        f"spr={spr:.1f}",
+        f"pos={position}",
         f"persona={persona}",
-        f"diff={difficulty}"
+        f"opp_range={opponent_analysis['avg_range']:.2f}",
+        f"agg_actions={action_patterns['aggressive_actions']}"
     ]
 
-    # Decision logic
-    if equity > 0.7:
-        # Very strong hand - raise or all-in
-        if req.bot.chips <= req.pot * 2:
-            return DecideResponse(action='AllIn', rationale='; '.join(rationale_parts + ["strong hand all-in"]))
-        else:
-            raise_to = min(req.bot.chips, max(req.pot + req.highestBet, req.bigBlind * 3))
-            return DecideResponse(action='Raise', raiseTo=raise_to, rationale='; '.join(rationale_parts + ["strong hand raise"]))
-    
-    elif equity > pot_odds + 0.1:
-        # Good pot odds + margin
-        if to_call == 0:
-            return DecideResponse(action='Call', rationale='; '.join(rationale_parts + ["check good equity"]))
-        else:
-            return DecideResponse(action='Call', rationale='; '.join(rationale_parts + ["call good equity"]))
-    
-    elif equity > pot_odds:
-        # Barely worth it
-        if to_call == 0:
-            return DecideResponse(action='Call', rationale='; '.join(rationale_parts + ["check marginal"]))
-        else:
-            return DecideResponse(action='Call', rationale='; '.join(rationale_parts + ["call marginal"]))
-    
+    # Enhanced decision logic based on SPR and position
+    if req.stage == "PreFlop":
+        return preflop_strategy(req, equity, pot_odds, position, persona, rationale_parts)
     else:
-        # Not worth it
-        return DecideResponse(action='Fold', rationale='; '.join(rationale_parts + ["fold negative equity"]))
+        return postflop_strategy(req, equity, pot_odds, spr, action_patterns, persona, rationale_parts)
+
+def preflop_strategy(req: DecideRequest, equity: float, pot_odds: float, position: str, persona: str, rationale_parts: List[str]) -> DecideResponse:
+    """Pre-flop specific strategy considering position and stack sizes."""
+    to_call = req.toCall if req.toCall is not None else max(0, req.highestBet - req.bot.bet)
+    
+    # Position-based opening ranges
+    position_strength = {
+        "UTG": 0.15, "MP": 0.20, "CO": 0.25, "BTN": 0.30, "SB": 0.35, "BB": 0.40
+    }
+    
+    min_equity_for_position = position_strength.get(position, 0.25)
+    
+    # Adjust for stack depth
+    if req.context.effectiveStack < 50 * req.bigBlind:  # Short stack
+        min_equity_for_position *= 0.8  # Looser
+    elif req.context.effectiveStack > 150 * req.bigBlind:  # Deep stack
+        min_equity_for_position *= 1.2  # Tighter
+    
+    if to_call == 0:  # Can open/limp
+        if equity > min_equity_for_position + 0.1:
+            # Strong hand - raise
+            raise_size = min(req.context.maxRaise, max(3 * req.bigBlind, req.pot + req.bigBlind))
+            return DecideResponse(action='Raise', raiseTo=raise_size, rationale='; '.join(rationale_parts + ["open raise"]))
+        else:
+            return DecideResponse(action='Call', rationale='; '.join(rationale_parts + ["check/limp"]))
+    
+    # Facing action
+    if equity > pot_odds + 0.15:  # Clear call
+        return DecideResponse(action='Call', rationale='; '.join(rationale_parts + ["preflop call"]))
+    elif equity > pot_odds and persona in ['Aggressive', 'Maniac']:
+        # Marginal but aggressive - consider 3-bet
+        if req.context.canRaise and req.bot.chips > req.pot * 2:
+            raise_to = min(req.context.maxRaise, max(req.pot + req.highestBet, 3 * req.highestBet))
+            return DecideResponse(action='Raise', raiseTo=raise_to, rationale='; '.join(rationale_parts + ["preflop 3-bet"]))
+        else:
+            return DecideResponse(action='Call', rationale='; '.join(rationale_parts + ["preflop call"]))
+    else:
+        return DecideResponse(action='Fold', rationale='; '.join(rationale_parts + ["preflop fold"]))
+
+def postflop_strategy(req: DecideRequest, equity: float, pot_odds: float, spr: float, action_patterns: Dict[str, Any], persona: str, rationale_parts: List[str]) -> DecideResponse:
+    """Post-flop strategy considering SPR and action patterns."""
+    to_call = req.toCall if req.toCall is not None else max(0, req.highestBet - req.bot.bet)
+    
+    # SPR-based strategy
+    if spr < 3:  # Low SPR - commit or fold
+        if equity > 0.4:
+            return DecideResponse(action='AllIn', rationale='; '.join(rationale_parts + ["low SPR commit"]))
+        else:
+            return DecideResponse(action='Fold', rationale='; '.join(rationale_parts + ["low SPR fold"]))
+    
+    elif spr < 10:  # Medium SPR - standard play
+        if equity > 0.6:
+            # Strong hand - bet/raise
+            bet_size = min(req.context.maxRaise, int(req.pot * 0.75))
+            return DecideResponse(action='Raise', raiseTo=bet_size, rationale='; '.join(rationale_parts + ["medium SPR value bet"]))
+        elif equity > pot_odds:
+            return DecideResponse(action='Call', rationale='; '.join(rationale_parts + ["medium SPR call"]))
+        else:
+            return DecideResponse(action='Fold', rationale='; '.join(rationale_parts + ["medium SPR fold"]))
+    
+    else:  # High SPR - more nuanced
+        if equity > 0.7:
+            # Very strong - can bet for value
+            bet_size = min(req.context.maxRaise, int(req.pot * 0.6))
+            return DecideResponse(action='Raise', raiseTo=bet_size, rationale='; '.join(rationale_parts + ["high SPR value bet"]))
+        elif equity > 0.5:
+            # Decent hand - can call or small bet
+            if action_patterns['aggressive_actions'] == 0 and req.context.canCheck:
+                return DecideResponse(action='Call', rationale='; '.join(rationale_parts + ["high SPR check"]))
+            elif equity > pot_odds:
+                return DecideResponse(action='Call', rationale='; '.join(rationale_parts + ["high SPR call"]))
+            else:
+                return DecideResponse(action='Fold', rationale='; '.join(rationale_parts + ["high SPR fold"]))
+        else:
+            # Weak hand - fold unless good pot odds
+            if equity > pot_odds + 0.1:
+                return DecideResponse(action='Call', rationale='; '.join(rationale_parts + ["high SPR pot odds call"]))
+            else:
+                return DecideResponse(action='Fold', rationale='; '.join(rationale_parts + ["high SPR fold"]))
 
 app = FastAPI(title="Poker Bot (FastAPI + treys)")
 
@@ -209,12 +322,40 @@ async def health():
 
 @app.post("/decide", response_model=DecideResponse)
 async def decide(req: DecideRequest):
+    print(f"\n=== PYTHON BOT: REQUEST RECEIVED ===")
+    print(f"Stage: {req.stage}")
+    print(f"Pot: {req.pot}, Highest Bet: {req.highestBet}, To Call: {req.toCall}")
+    print(f"Bot: {req.bot.position} - {req.bot.chips} chips, {req.bot.bet} bet")
+    print(f"Bot Cards: {[f'{card.rank}{card.suit[0].upper()}' for card in req.bot.holeCards]}")
+    print(f"Board: {[f'{card.rank}{card.suit[0].upper()}' for card in req.board]}")
+    print(f"Context: SPR={req.context.effectiveStack/req.pot:.1f if req.pot > 0 else 'inf'}, Players={req.context.playersActive}")
+    print(f"Action History: {len(req.context.actionHistory)} actions")
+    print(f"Dealer Position: {req.context.dealerPosition}")
+    print("=" * 40)
+    
     if TreysCard is None:
         return DecideResponse(action='Fold', rationale='treys not installed')
     try:
-        return choose_action(req)
+        result = choose_action(req)
+        print(f"Decision: {result.action} {f'to {result.raiseTo}' if result.raiseTo else ''}")
+        print(f"Rationale: {result.rationale}")
+        print("=" * 40 + "\n")
+        return result
     except Exception as e:
+        print(f"ERROR: {e}")
+        print("=" * 40 + "\n")
         return DecideResponse(action='Fold', rationale=f'error: {str(e)}')
+
+@app.get("/debug")
+async def debug():
+    return {
+        "service": "Poker Bot (FastAPI + treys)",
+        "version": "2.0",
+        "dependencies": {
+            "treys": "OK" if TreysCard else "MISSING",
+            "pypokerengine": "OK" if pypokerengine else "OPTIONAL"
+        }
+    }
 
 if __name__ == "__main__":
     import uvicorn

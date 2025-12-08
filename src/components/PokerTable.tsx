@@ -113,7 +113,7 @@ export const PokerTable: React.FC<PokerTableProps> = ({
       </div>
 
       {/* Poker table - larger and perfectly centered */}
-      <div className="relative w-[90vw] max-w-[1200px] h-[65vh] min-h-[500px]">
+      <div className="relative w-[90vw] max-w-[1400px] lg:max-w-[1600px] h-[65vh] min-h-[500px] lg:h-[70vh]">
         {/* Dealer position - higher on the table */}
         <div ref={dealerRef} className="absolute left-1/2 -translate-x-1/2 -top-12 z-10">
           <Dealer isDealing={isDealing} />
@@ -168,7 +168,7 @@ export const PokerTable: React.FC<PokerTableProps> = ({
               </div>
             </div>
 
-            {/* Board area - perfectly centered in Y axis */}
+            {/* Board area - moved slightly lower */}
             <div className="absolute inset-0 flex items-center justify-center px-4 sm:px-6">
               <div className="flex items-center justify-center gap-3 sm:gap-4 md:gap-6">
                 {[...Array(5)].map((_, i) => (

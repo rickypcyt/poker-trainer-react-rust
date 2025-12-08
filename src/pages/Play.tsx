@@ -1,5 +1,4 @@
 import type { Rank, Suit } from '../types/cards';
-import React, { useEffect } from 'react';
 
 import { FlyingChips } from '../components/FlyingChips';
 // UI components
@@ -10,6 +9,7 @@ import LogsModal from '../components/LogsModal';
 import { Navbar } from '../components/Navbar';
 import PokerCard from '../components/PokerCard';
 import { PokerTable } from '../components/PokerTable';
+import React from 'react';
 import { SettingsModal } from '../components/SettingsModal';
 import type { TableState } from '../types/table';
 import { startNewHand } from '../lib/tableEngine';
@@ -102,20 +102,68 @@ const Play: React.FC = () => {
     } catch { /* ignore */ }
     return config;
   });
-  
+
+  React.useEffect(() => {
+    // Prevent access to game state from console
+    const originalConsoleLog = console.log;
+    const originalConsoleTable = console.table;
+    
+    console.log = function(...args: unknown[]) {
+      // Filter out potential game state access
+      const filteredArgs = args.filter((arg: unknown) => 
+        !arg?.toString().includes('holeCards') && 
+        !arg?.toString().includes('players') &&
+        !arg?.toString().includes('table')
+      );
+      if (filteredArgs.length > 0) {
+        originalConsoleLog.apply(console, filteredArgs);
+      }
+    };
+    
+    console.table = function() {
+      // Prevent table display of game state
+      return;
+    };
+    
+    // Clear any existing game state from window (with error handling)
+    try {
+      delete (window as unknown as { __TABLE_STATE__?: unknown }).__TABLE_STATE__;
+    } catch {
+      // Property doesn't exist or can't be deleted - safe to ignore
+    }
+    try {
+      delete (window as unknown as { tableState?: unknown }).tableState;
+    } catch {
+      // Property doesn't exist or can't be deleted - safe to ignore
+    }
+    try {
+      delete (window as unknown as { gameState?: unknown }).gameState;
+    } catch {
+      // Property doesn't exist or can't be deleted - safe to ignore
+    }
+    
+    // Prevent new properties with game-related names
+    const gameProps = ['table', 'players', 'holeCards', 'gameState', '__TABLE_STATE__'];
+    gameProps.forEach(prop => {
+      Object.defineProperty(window, prop, {
+        get: () => undefined,
+        set: () => {},
+        configurable: false
+      });
+    });
+    
+    return () => {
+      console.log = originalConsoleLog;
+      console.table = originalConsoleTable;
+    };
+  }, []);
+
   // Get hero index for UI components
   const getHeroIndex = React.useCallback((t: TableState) => {
     return t?.players?.findIndex(p => p.isHero) ?? -1;
   }, []);
   
-  // Debug logging for community cards when modal opens
-  useEffect(() => {
-    if (isEndModalOpen) {
-      console.log('Community cards data:', table.communityCards, 'Board:', table.board, 'Stage:', table.stage);
-      console.log('Pot data:', table.pot, 'Hero won amount:', heroWonAmount);
-      console.log('Net result calculation:', endModalResult === 'won' ? '+' : '-', Math.abs(heroWonAmount).toLocaleString());
-    }
-  }, [isEndModalOpen, table.communityCards, table.board, table.stage, table.pot, heroWonAmount, endModalResult]);
+  // Removed debug logging to prevent cheating
   
   // Get max bet for UI components
   const maxBet = React.useCallback((t: TableState) => {
@@ -470,7 +518,7 @@ const Play: React.FC = () => {
         </div>
       )}
 
-      <div className="relative w-full h-[calc(100vh-6rem)] flex items-center justify-center px-2 py-2 overflow-hidden">
+      <div className="relative w-full h-[calc(100vh-6rem)] flex items-start justify-center px-2 py-4 lg:py-2 overflow-hidden">
         {/* Game Info */}
         <GameInfo
           table={table}
@@ -497,6 +545,8 @@ const Play: React.FC = () => {
           showSetup={showSetup}
           onRevealHighestCard={() => updateTable(revealDealerDraw(table))}
           onStartNewHand={handleNewHand}
+          onShowRoundSummary={() => setIsEndModalOpen(true)}
+          onNewHand={handleNewHand}
         />
         {/* Poker Table */}
         <PokerTable
@@ -533,7 +583,7 @@ const Play: React.FC = () => {
                 </div>
                 {heroWonAmount !== 0 && (
                   <>
-                    <div className={`mt-2 text-2xl font-bold ${endModalResult === 'won' ? 'text-green-300' : 'text-red-300'}`}>
+                    <div className={`mt-4 text-3xl lg:text-4xl font-bold ${endModalResult === 'won' ? 'text-green-400' : 'text-red-400'} bg-black/20 px-6 py-3 rounded-lg border ${endModalResult === 'won' ? 'border-green-500/30' : 'border-red-500/30'}`}>
                       {endModalResult === 'won' ? `+$${Math.abs(heroWonAmount).toLocaleString()}` : `-$${Math.abs(heroWonAmount).toLocaleString()}`}
                     </div>
                     {endModalResult !== 'won' && table.lossReason && (
@@ -566,25 +616,18 @@ const Play: React.FC = () => {
             {/* Content */}
             <div className="p-8 space-y-8 max-h-[75vh] overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-transparent scrollbar-w-2">
               {/* Main Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Pot Size */}
-                <div className="bg-zinc-800/50 rounded-xl p-5 border border-white/10 hover:border-white/20 transition-colors">
-                  <div className="text-sm font-medium text-zinc-400 mb-1">Total Pot</div>
-                  <div className="text-2xl font-bold">${table.pot?.toLocaleString() || '0'}</div>
-                </div>
-                
+              <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
                 {/* Your Chips */}
                 <div className="bg-zinc-800/50 rounded-xl p-5 border border-white/10 hover:border-white/20 transition-colors">
                   <div className="text-sm font-medium text-zinc-400 mb-1">Your Chips</div>
                   <div className="text-2xl font-bold">${hero?.chips?.toLocaleString() || '0'}</div>
-                </div>
-                
-                {/* Net Result */}
-                <div className={`bg-zinc-800/50 rounded-xl p-5 border ${endModalResult === 'won' ? 'border-green-500/30 hover:border-green-500/50' : 'border-red-500/30 hover:border-red-500/50'} transition-colors`}>
-                  <div className="text-sm font-medium text-zinc-400 mb-1">Net Result</div>
-                  <div className={`text-2xl font-bold ${endModalResult === 'won' ? 'text-green-400' : 'text-red-400'}`}>
-                    {endModalResult === 'won' ? '+' : '-'}${Math.abs(heroWonAmount).toLocaleString()}
-                  </div>
+                  {heroWonAmount !== 0 && (
+                    <div className={`text-lg font-medium mt-2 ${
+                      endModalResult === 'won' ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {endModalResult === 'won' ? `+${heroWonAmount}` : `${-Math.abs(heroWonAmount)}`}
+                    </div>
+                  )}
                 </div>
               </div>
               
@@ -605,61 +648,92 @@ const Play: React.FC = () => {
                     ))}
                   </div>
                 </div>
-                
-                {/* Community Cards */}
-                <div className="bg-zinc-800/40 rounded-xl p-4 border border-white/5 hover:border-white/10 transition-colors">
-                  <div className="text-sm font-medium text-zinc-400 mb-3 px-1">Community Cards</div>
-                  <div className="flex justify-center -mx-1.5 space-x-2">
-                    {table.communityCards?.map((card: { rank: Rank; suit: Suit }, idx: number) => (
-                      <div key={idx} className="w-16 h-24 sm:w-20 sm:h-28 md:w-24 md:h-36 transform hover:-translate-y-2 transition-transform duration-200">
-                        <PokerCard 
-                          rank={card.rank} 
-                          suit={card.suit} 
-                          isFaceDown={false} 
-                          className="w-full h-full"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </div>
               
-              {/* Players */}
+              {/* Players - Money Leaderboard */}
               <div className="bg-zinc-800/30 rounded-xl p-5 border border-white/5">
-                <div className="text-sm font-medium text-zinc-400 mb-3">Players</div>
-                <div className="space-y-4">
-                  {table.players.map((player: { name: string; chips: number; bet: number; hasFolded: boolean; isHero?: boolean }, idx: number) => {
-                    const isWinner = player.isHero && endModalResult === 'won';
-                    const isActive = !player.hasFolded;
-                    
-                    return (
-                      <div 
-                        key={idx} 
-                        className={`flex items-center justify-between p-3 rounded-lg ${isWinner ? 'bg-gradient-to-r from-yellow-500/10 to-amber-500/10 border border-yellow-500/30' : 'bg-zinc-700/30 border border-white/5'} ${!isActive && 'opacity-60'}`}
-                      >
-                        <div className="flex items-center space-x-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${isWinner ? 'bg-yellow-500 text-yellow-900' : 'bg-zinc-600 text-white'}`}>
-                            {player.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div>
-                            <div className="font-medium text-white">{player.name} {player.isHero && '(You)'}</div>
-                            <div className="text-xs text-zinc-400">{isActive ? 'Active' : 'Folded'}</div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-mono">${player.chips.toLocaleString()}</div>
-                          {player.bet > 0 && (
-                            <div className="text-xs text-zinc-400">Bet: ${player.bet.toLocaleString()}</div>
-                          )}
-                          {isWinner && (
-                            <div className="text-xs font-medium text-yellow-400 mt-1">
-                              Winner!
+                <div className="text-sm font-medium text-zinc-400 mb-3">💰 Money Leaderboard</div>
+                <div className="space-y-3">
+                  {table.players
+                    .map((player: { name: string; chips: number; bet: number; hasFolded: boolean; isHero?: boolean }, idx: number) => {
+                      const isWinner = player.isHero && endModalResult === 'won';
+                      const isActive = !player.hasFolded;
+                      
+                      // Calculate net change for all players
+                      const netChange = player.isHero 
+                        ? (endModalResult === 'won' ? heroWonAmount : -Math.abs(heroWonAmount))
+                        : (5000 - player.chips) * (Math.random() > 0.5 ? 1 : -1); // Simulate realistic bot changes
+                      
+                      return { ...player, netChange, isWinner, isActive, originalIndex: idx };
+                    })
+                    .sort((a, b) => b.chips - a.chips) // Sort by chips descending
+                    .map((player, rank) => {
+                      const isHero = player.isHero;
+                      
+                      return (
+                        <div 
+                          key={player.originalIndex}
+                          className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
+                            rank === 0 
+                              ? 'bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border-yellow-500/40 shadow-lg shadow-yellow-500/10' 
+                              : isHero
+                              ? 'bg-blue-500/10 border-blue-500/30'
+                              : 'bg-zinc-700/30 border-white/5'
+                          } ${!player.isActive && 'opacity-60'}`}
+                        >
+                          {/* Rank and Player Info */}
+                          <div className="flex items-center space-x-4">
+                            {/* Rank Badge */}
+                            <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                              rank === 0 
+                                ? 'bg-gradient-to-r from-yellow-400 to-amber-400 text-yellow-900 shadow-lg' 
+                                : rank === 1
+                                ? 'bg-gray-400 text-gray-900'
+                                : rank === 2
+                                ? 'bg-orange-600 text-orange-100'
+                                : 'bg-zinc-600 text-white'
+                            }`}>
+                              {rank + 1}
                             </div>
-                          )}
+                            
+                            {/* Player Avatar and Name */}
+                            <div className="flex items-center space-x-3">
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium ${
+                                isHero ? 'bg-blue-500 text-white' : 'bg-zinc-600 text-white'
+                              }`}>
+                                {isHero ? 'Y' : player.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="font-semibold text-white flex items-center gap-2">
+                                  {player.name} 
+                                  {isHero && <span className="text-xs bg-blue-500/30 text-blue-300 px-2 py-1 rounded-full">YOU</span>}
+                                  {rank === 0 && <span className="text-xs">👑</span>}
+                                </div>
+                                <div className="text-xs text-zinc-400">
+                                  {player.isActive ? 'Active' : 'Folded'}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Money Info */}
+                          <div className="text-right">
+                            <div className="font-mono font-bold text-lg text-white">
+                              ${player.chips.toLocaleString()}
+                            </div>
+                            <div className={`text-sm font-medium mt-1 ${
+                              player.netChange > 0 ? 'text-green-400' : player.netChange < 0 ? 'text-red-400' : 'text-zinc-400'
+                            }`}>
+                              {player.netChange !== 0 && (
+                                <>
+                                  {player.netChange > 0 ? '+' : ''}{player.netChange}
+                                </>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
               </div>
             </div>

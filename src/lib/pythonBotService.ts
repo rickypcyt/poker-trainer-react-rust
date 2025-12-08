@@ -58,7 +58,17 @@ export class PythonBotService {
     const highestBet = Math.max(0, ...gameState.players.map(p => p.bet));
     const toCall = Math.max(0, highestBet - player.bet);
     
-    // Build payload for Python service
+    // Calculate effective stack (minimum stack among active players)
+    const activePlayers = gameState.players.filter(p => !p.hasFolded);
+    const effectiveStack = Math.min(...activePlayers.map(p => p.chips));
+    
+    // Build action history from game state
+    const actionHistory = this.buildActionHistory(gameState);
+    
+    // Calculate position names using dealerIndex instead of dealerPosition
+    const botPosition = this.getPositionName(playerIndex, gameState.players.length, gameState.dealerIndex);
+    
+    // Build enhanced payload for Python service
     const payload = {
       stage: gameState.stage,
       bigBlind: gameState.bigBlind,
@@ -71,17 +81,31 @@ export class PythonBotService {
         bet: player.bet,
         holeCards: (player.holeCards || []).map(card => this.convertCard(card)),
         positionIndex: playerIndex,
-        seatIndex: playerIndex,
+        seatIndex: player.seatIndex,
+        position: botPosition,
         personality: this.convertPersonality(player.ai?.personality || 'Balanced'),
         difficulty: this.convertDifficulty(player.ai?.difficulty || gameState.difficulty || 'Medium')
       },
-      players: gameState.players.map(p => ({
+      players: gameState.players.map((p, idx) => ({
         chips: p.chips,
         bet: p.bet,
         hasFolded: p.hasFolded,
-        isHero: p.isHero
+        isHero: p.isHero,
+        position: this.getPositionName(idx, gameState.players.length, gameState.dealerIndex)
+        // Note: stats not available in current Player interface
       })),
-      board: (gameState.communityCards || gameState.board || []).map(card => this.convertCard(card))
+      board: (gameState.communityCards || gameState.board || []).map(card => this.convertCard(card)),
+      context: {
+        dealerPosition: gameState.dealerIndex,
+        playersActive: activePlayers.length,
+        effectiveStack: effectiveStack,
+        street: gameState.stage,
+        actionHistory: actionHistory,
+        minRaise: Math.max(gameState.bigBlind * 2, highestBet * 2),
+        maxRaise: player.chips,
+        canCheck: toCall === 0,
+        canRaise: player.chips > toCall
+      }
     };
 
     try {
@@ -93,6 +117,12 @@ export class PythonBotService {
         reasoning: decision.rationale || 'Python bot decision'
       };
 
+      // Convert call with 0 amount to check
+      if (botDecision.action === 'call' && (!botDecision.amount || botDecision.amount === 0)) {
+        botDecision.action = 'check';
+        botDecision.amount = undefined;
+      }
+
       console.log(`[Python Bot] Decision: ${botDecision.action} ${botDecision.amount ? `$${botDecision.amount}` : ''} - ${botDecision.reasoning}`);
       
       return botDecision;
@@ -103,6 +133,110 @@ export class PythonBotService {
         action: toCall > 0 ? 'fold' : 'check',
         reasoning: 'Python bot unavailable - using fallback'
       };
+    }
+  }
+
+  private buildActionHistory(gameState: TableState): Array<{
+    playerIndex: number;
+    action: string;
+    amount?: number;
+    street: string;
+  }> {
+    // Build action history from actionLog if available
+    const history: Array<{
+      playerIndex: number;
+      action: string;
+      amount?: number;
+      street: string;
+    }> = [];
+    
+    // Parse action log to extract structured actions
+    if (gameState.actionLog) {
+      gameState.actionLog.forEach((entry) => {
+        // Simple parsing - you can enhance this based on your log format
+        if (entry.message.includes('raises') || entry.message.includes('bets')) {
+          const match = entry.message.match(/(\w+)\s+(raises|bets)\s+(\d+)/);
+          if (match) {
+            const playerName = match[1];
+            const action = match[2];
+            const amount = parseInt(match[3]);
+            const playerIndex = gameState.players.findIndex(p => p.name === playerName);
+            
+            if (playerIndex >= 0) {
+              history.push({
+                playerIndex,
+                action: action.toLowerCase(),
+                amount,
+                street: gameState.stage
+              });
+            }
+          }
+        } else if (entry.message.includes('calls')) {
+          const match = entry.message.match(/(\w+)\s+calls/);
+          if (match) {
+            const playerName = match[1];
+            const playerIndex = gameState.players.findIndex(p => p.name === playerName);
+            
+            if (playerIndex >= 0) {
+              history.push({
+                playerIndex,
+                action: 'call',
+                street: gameState.stage
+              });
+            }
+          }
+        } else if (entry.message.includes('folds')) {
+          const match = entry.message.match(/(\w+)\s+folds/);
+          if (match) {
+            const playerName = match[1];
+            const playerIndex = gameState.players.findIndex(p => p.name === playerName);
+            
+            if (playerIndex >= 0) {
+              history.push({
+                playerIndex,
+                action: 'fold',
+                street: gameState.stage
+              });
+            }
+          }
+        } else if (entry.message.includes('checks')) {
+          const match = entry.message.match(/(\w+)\s+checks/);
+          if (match) {
+            const playerName = match[1];
+            const playerIndex = gameState.players.findIndex(p => p.name === playerName);
+            
+            if (playerIndex >= 0) {
+              history.push({
+                playerIndex,
+                action: 'check',
+                street: gameState.stage
+              });
+            }
+          }
+        }
+      });
+    }
+    
+    return history;
+  }
+
+  private getPositionName(index: number, totalPlayers: number, dealerPosition: number): string {
+    const positions = this.getPositions(totalPlayers);
+    const adjustedIndex = (index - dealerPosition + totalPlayers) % totalPlayers;
+    return positions[adjustedIndex] || 'Unknown';
+  }
+
+  private getPositions(totalPlayers: number): string[] {
+    switch (totalPlayers) {
+      case 2: return ['BB', 'SB'];
+      case 3: return ['BB', 'SB', 'BTN'];
+      case 4: return ['BB', 'SB', 'BTN', 'CO'];
+      case 5: return ['BB', 'SB', 'BTN', 'CO', 'MP'];
+      case 6: return ['BB', 'SB', 'BTN', 'CO', 'MP', 'UTG'];
+      case 7: return ['BB', 'SB', 'BTN', 'CO', 'MP1', 'MP2', 'UTG'];
+      case 8: return ['BB', 'SB', 'BTN', 'CO', 'MP1', 'MP2', 'UTG1', 'UTG2'];
+      case 9: return ['BB', 'SB', 'BTN', 'CO', 'MP1', 'MP2', 'MP3', 'UTG1', 'UTG2'];
+      default: return ['BB', 'SB', 'BTN', 'CO', 'MP', 'UTG'];
     }
   }
 

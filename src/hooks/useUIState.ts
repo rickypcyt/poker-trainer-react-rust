@@ -45,25 +45,33 @@ export const useUIState = (table: TableState) => {
     if (table.stage !== 'Showdown') return;
     if (lastModalHandRef.current === table.handNumber) return;
     
-    // Try to find the latest winner in the actionLog
-    let heroWon = false;
-    if (table.actionLog && table.actionLog.length > 0) {
-      for (let i = table.actionLog.length - 1; i >= 0; i -= 1) {
-        const msg = table.actionLog[i].message || '';
-        const m = msg.match(/^(.*?)\s+wins the pot/i);
-        if (m) {
-          const name = m[1];
-          heroWon = (name === 'You');
-          break;
+    // First reveal all opponent cards
+    setReveal(true);
+    
+    // Wait a moment before showing the modal so user can see the cards
+    const timer = setTimeout(() => {
+      // Try to find the latest winner in the actionLog
+      let heroWon = false;
+      if (table.actionLog && table.actionLog.length > 0) {
+        for (let i = table.actionLog.length - 1; i >= 0; i -= 1) {
+          const msg = table.actionLog[i].message || '';
+          const m = msg.match(/^(.*?)\s+wins the pot/i);
+          if (m) {
+            const name = m[1];
+            heroWon = (name === 'You');
+            break;
+          }
         }
       }
-    }
-    const result = heroWon ? 'won' : 'lost';
-    setEndModalResult(result);
-    const winAmount = Math.abs(table.pot || 0);
-    setHeroWonAmount(heroWon ? winAmount : -winAmount);
-    setIsEndModalOpen(true);
-    lastModalHandRef.current = table.handNumber;
+      const result = heroWon ? 'won' : 'lost';
+      setEndModalResult(result);
+      const winAmount = Math.abs(table.pot || 0);
+      setHeroWonAmount(heroWon ? winAmount : -winAmount);
+      setIsEndModalOpen(true);
+      lastModalHandRef.current = table.handNumber;
+    }, 1500); // 1.5 second delay to see the cards
+    
+    return () => clearTimeout(timer);
   }, [table.stage, table.handNumber, table.actionLog, table.pot]);
 
   // Mini action bubbles near players: derive from last actionLog

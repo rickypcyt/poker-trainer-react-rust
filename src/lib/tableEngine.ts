@@ -562,6 +562,10 @@ export function processNextAction(state: TableState): TableState {
     }
     return anchor;
   })();
+  
+  // Debug logging
+  console.log(`[DEBUG] allMatched: ${allMatched}, hasAction: ${hasAnyActionThisStreet()}, currentPlayer: ${state.currentPlayerIndex}, firstToAct: ${firstToAct}, highestBet: ${highestBetNow}`);
+  
   if (allMatched && hasAnyActionThisStreet() && state.currentPlayerIndex === firstToAct) {
     const advanced = advanceToNextStreet(state);
     return processNextAction(advanced);
@@ -634,6 +638,7 @@ export async function performBotActionNow(state: TableState): Promise<TableState
       switch (decision.action) {
         case 'fold': action = 'Fold'; break;
         case 'call': action = 'Call'; break;
+        case 'check': action = 'Call'; break; // Check is treated as call with 0 amount
         case 'raise': action = 'Raise'; break;
         case 'allin': action = 'AllIn'; break;
         default: action = 'Fold';
@@ -1250,13 +1255,17 @@ export function applyExternalBotDecision(
     const newStack = { ...bot.chipStack };
     const used = takeFromChipStackGreedy(newStack, pay);
     const players = state.players.map((p, i) => i === botIndex ? { ...p, chips: p.chips - pay, bet: p.bet + pay, chipStack: newStack } : p);
+    
+    // Log as check if pay is 0, otherwise as call
+    const actionMessage = pay === 0 ? `${bot.name} checked` : `${bot.name} called ${pay}`;
+    
     return {
       ...state,
       players,
       pot: state.pot + pay,
       potStack: addToChipStack({ ...state.potStack }, used),
       currentPlayerIndex: (botIndex + 1) % state.players.length,
-      actionLog: [...state.actionLog, { message: `${bot.name} called ${pay}`, time: new Date().toLocaleTimeString() }]
+      actionLog: [...state.actionLog, { message: actionMessage, time: new Date().toLocaleTimeString() }]
     } as TableState;
   }
 
