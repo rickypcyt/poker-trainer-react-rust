@@ -14,5 +14,6 @@ export interface PokerCardProps extends React.HTMLAttributes<HTMLDivElement> {
   isHighlighted?: boolean;
   isFaceDown?: boolean;
   scale?: number;
+  aspectRatio?: number; // width/height ratio, default ~0.73
 }
 

@@ -7,6 +7,7 @@ type NavbarProps = {
   onOpenLogs?: () => void;
   onOpenHands?: () => void;
   onEndGame?: () => void;
+  onOpenSettings?: () => void;
   disabled?: boolean;
   actionLabel?: string;
   subtitle?: string;
@@ -18,13 +19,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenLogs,
   onOpenHands,
   onEndGame,
+  onOpenSettings,
   disabled, 
   actionLabel = 'Shuffle', 
   subtitle 
 }) => {
   return (
     <nav className="bg-white/5 backdrop-blur-xl border-b border-white/10 sticky top-0 z-40">
-      <div className="container mx-auto px-4 py-4">
+      <div className="container mx-auto py-4">
         <div className="flex items-center justify-between">
           {/* Home Button */}
           <Link 
@@ -40,10 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </Link>
 
           {/* Title */}
-          <div className="text-center flex-1 mx-4">
-            <h1 className="text-xl sm:text-2xl font-bold text-white bg-gradient-to-r from-white to-white/80 bg-clip-text text-transparent">
-              Poker Trainer
-            </h1>
+          <div className="text-center flex-1 px-2">
             {subtitle && (
               <p className="text-white/60 text-base hidden sm:block">{subtitle}</p>
             )}
@@ -102,6 +101,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </svg>
                 </div>
                 <span className="hidden sm:block">Hands</span>
+              </button>
+            )}
+            {onOpenSettings && (
+              <button
+                className="group flex items-center space-x-1 sm:space-x-2 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 text-white px-2 sm:px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105 text-xs sm:text-sm"
+                onClick={onOpenSettings}
+                aria-label="Open settings"
+              >
+                <div className="w-4 h-4 sm:w-5 sm:h-5 bg-white/20 rounded-md flex items-center justify-center group-hover:bg-white/30 transition-colors duration-300">
+                  <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <span className="hidden sm:block">Settings</span>
               </button>
             )}
             {onShuffle && (

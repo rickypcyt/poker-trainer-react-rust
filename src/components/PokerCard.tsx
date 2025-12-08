@@ -11,6 +11,7 @@ export const PokerCard: React.FC<PokerCardProps> = ({
   isHighlighted = false, 
   isFaceDown = false, 
   scale = 1,
+  aspectRatio = 0.73, // default aspect ratio
   className = ''
 }) => {
   const flippedClass = (isFaceDown || isShuffling) ? 'is-flipped' : '';
@@ -18,15 +19,19 @@ export const PokerCard: React.FC<PokerCardProps> = ({
     ? 'ring-4 ring-green-600 shadow-xl shadow-green-700/30 scale-[1.02]'
     : '';
 
+  // Calculate dimensions based on aspect ratio
+  const baseHeight = 'clamp(5.5rem, 11vw, 9.5rem)';
+  const baseWidth = `calc(${baseHeight} * ${aspectRatio})`;
+
   return (
     <div 
       className={`card card-3d transition-all duration-200 ${highlightClass} ${className}`} 
       style={{
         transform: `scale(${scale})`,
-        width: 'clamp(4rem, 8vw, 7rem)',
-        height: 'clamp(5.5rem, 11vw, 9.5rem)',
-        minWidth: 'clamp(4rem, 8vw, 7rem)',
-        minHeight: 'clamp(5.5rem, 11vw, 9.5rem)',
+        width: baseWidth,
+        height: baseHeight,
+        minWidth: baseWidth,
+        minHeight: baseHeight,
         overflow: 'hidden'
       }}
     >

@@ -40,8 +40,8 @@ export const PokerTable: React.FC<PokerTableProps> = ({
     if (n === 0) return [] as Array<{ left: number; top: number; position: 'left' | 'right' | 'top' | 'bottom' }>;
     const totalSeats = all.length || n;
     const heroSeat = all.find((p: Player) => p.isHero)?.seatIndex ?? 0;
-    const radiusX = 38; // percent width
-    const radiusY = 32; // percent height for nicer oval
+    const radiusX = 48; // percent width - increased to separate bots more horizontally
+    const radiusY = 0; // percent height - completely flat to align exactly with board cards
     const arr = bots.map((bot) => {
       const rel = ((bot.seatIndex - heroSeat + totalSeats) % totalSeats);
       const angleDeg = 270 + (360 / totalSeats) * rel;
@@ -109,16 +109,39 @@ export const PokerTable: React.FC<PokerTableProps> = ({
           <Dealer isDealing={isDealing} />
         </div>
         
-        {/* Table mat with clean design */}
-        <div className="absolute inset-0 bg-green-900/90 rounded-[40%] border-4 border-amber-100/20 shadow-xl overflow-hidden">
-          {/* Felt texture with subtle pattern and gradient */}
-          <div className="absolute inset-0 bg-gradient-to-br from-green-800/90 to-green-900/90">
+        {/* Table mat with enhanced design */}
+        <div className="absolute inset-0 bg-gradient-to-br from-green-900/95 via-green-800/90 to-green-900/95 rounded-[50%] border-4 border-amber-200/30 shadow-2xl overflow-hidden backdrop-blur-sm">
+          {/* Enhanced felt texture with realistic pattern */}
+          <div className="absolute inset-0 bg-gradient-to-br from-green-800/80 via-green-900/85 to-green-950/80">
+            {/* Subtle wood grain pattern for authenticity */}
             <div 
-              className="absolute inset-0 opacity-10"
+              className="absolute inset-0 opacity-20"
               style={{
-                backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.1\' fill-rule=\'evenodd\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/svg%3E")',
+                backgroundImage: `
+                  repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(255,255,255,0.03) 2px, rgba(255,255,255,0.03) 4px),
+                  repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.03) 2px, rgba(255,255,255,0.03) 4px),
+                  radial-gradient(circle at 30% 40%, rgba(255,255,255,0.1) 0%, transparent 50%),
+                  radial-gradient(circle at 70% 60%, rgba(255,255,255,0.08) 0%, transparent 40%)
+                `
               }}
             />
+            {/* Dynamic lighting effect */}
+            <div 
+              className="absolute inset-0 opacity-30"
+              style={{
+                background: `
+                  radial-gradient(ellipse at 25% 25%, rgba(255,255,255,0.15) 0%, transparent 40%),
+                  radial-gradient(ellipse at 75% 75%, rgba(255,255,255,0.1) 0%, transparent 35%),
+                  linear-gradient(135deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%)
+                `
+              }}
+            />
+          </div>
+          
+          {/* Inner rail border for depth */}
+          <div className="absolute inset-0 rounded-[50%] border-2 border-amber-300/20 shadow-inner">
+            {/* Rail cushion effect */}
+            <div className="absolute inset-0 rounded-[48%] border border-amber-100/15 shadow-lg" />
           </div>
           
           {/* Main table area */}

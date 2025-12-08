@@ -44,7 +44,7 @@ export const GameInfo: React.FC<GameInfoProps> = ({
     <div className={`absolute right-2 top-2 bg-black/40 border border-white/10 rounded-lg p-3 text-[11px] text-white/80 w-[min(280px,35vw)] z-[70] transition-all duration-300 ${showSetup ? 'opacity-50 blur-sm' : ''}`}>
       {lastActionBanner && (
         <div className={`mb-2 text-center text-sm font-semibold px-3 py-1 rounded-md border ${lastActionBanner.isHero ? 'bg-emerald-600/20 border-emerald-400/40 text-emerald-200' : 'bg-white/10 border-white/20 text-white/90'}`}>
-          Última acción: {lastActionBanner.text}
+          Last action: {lastActionBanner.text}
         </div>
       )}
       <div className="text-white/90 text-sm mb-2 text-center">

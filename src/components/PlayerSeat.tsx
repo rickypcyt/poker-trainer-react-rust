@@ -92,7 +92,7 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
       : (isHero ? '-top-6 left-1/2 -translate-x-1/2' : '-top-5 left-1/2 -translate-x-1/2');
 
   return (
-    <div data-position={position} className={`relative flex items-center ${isHero ? 'gap-2 p-1' : (botDensity === 'ultra' ? 'gap-0.5 p-0.5' : 'gap-1 p-0.5')} ${isHero ? 'bg-black/20' : 'bg-black/30 border border-white/20'} rounded-lg ${activeClass} ${highlightClass} ${foldedClass}`}>
+    <div data-position={position} className={`relative flex items-center ${isHero ? 'gap-2 p-1' : (botDensity === 'ultra' ? 'gap-0.5 p-0.5' : 'gap-1 p-0.5')} ${isHero ? 'bg-black/20' : 'bg-black/30 border border-white/20'} rounded-lg ${activeClass} ${highlightClass} ${foldedClass} ${isHighlighted ? 'w-auto min-w-[160px]' : ''}`}>
       {/* Action bubble */}
       {actionText && (
         <div className={`absolute ${bubbleSideClass} ${isHero ? 'text-base px-3 py-1' : 'text-[11px] px-2 py-0.5'} font-semibold text-white bg-neutral-900/90 border border-white/20 rounded-full shadow-lg whitespace-nowrap`}>
@@ -106,9 +106,9 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
       {/* Right: Header + Cards */}
       <div className="group relative flex flex-col items-center">
         <div className={`flex items-baseline justify-center ${isHero ? 'gap-2' : (botDensity === 'ultra' ? 'gap-0.5' : 'gap-1')}`}>
-          {isHero ? (
-            <div className={`text-2xl leading-none`}>{avatar}</div>
-          ) : null}
+          {!isHero && (
+            <div className={`text-lg leading-none`}>{avatar}</div>
+          )}
           <span className={`text-white/90 font-bold ${isHero ? 'text-base' : (botDensity === 'ultra' ? 'text-[12px]' : 'text-[13px]')} tracking-tight ${isHero ? 'max-w-[88px]' : 'max-w-[72px]'} truncate`} title={!isHero ? name : undefined}>{botName}</span>
           {tag && (
             <span className={`px-1 py-0.5 rounded text-[9px] font-bold text-white border ${tagClass}`}>
@@ -139,8 +139,8 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
             <span className={`px-2 py-0.5 rounded-full border border-white/20 bg-blue-600/30 text-blue-100 ${isHero ? 'text-[11px]' : 'text-[10px]'} font-semibold`}>Thinking…</span>
           )}
         </div>
-        {/* Extra info pills (row 2: AI info) */}
-        {!isHero && (player.ai?.difficulty || player.ai?.personality) && (
+        {/* Extra info pills (row 2: AI info) - REMOVED */}
+        {/* {!isHero && (player.ai?.difficulty || player.ai?.personality) && (
           <div className={`mt-1 flex flex-wrap items-center justify-center ${isHero ? 'gap-1.5' : 'gap-1'}`}>
             {player.ai?.difficulty && (
               <span className={`px-2 py-0.5 rounded-full border border-white/20 bg-purple-600/30 text-purple-100 ${isHero ? 'text-[11px]' : 'text-[10px]'} font-semibold whitespace-nowrap`}>{player.ai.difficulty}</span>
@@ -149,15 +149,14 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
               <span className={`px-2 py-0.5 rounded-full border border-white/20 bg-green-600/30 text-green-100 ${isHero ? 'text-[11px]' : 'text-[10px]'} font-semibold whitespace-nowrap`}>{player.ai.personality}</span>
             )}
           </div>
-        )}
-        {/* Chip stack hover removed as requested */}
+        )} */}
         {/* Cards - beneath header; show 1 card for dealer draw, 2 for regular play */}
         {showCardRow && (
           <div className={`flex ${isHero ? 'gap-0.5' : 'gap-0'} mt-0.5`}>
             {cards.map((c, i) => {
               const overlap = isHero ? -8 : (botDensity === 'ultra' ? -22 : botDensity === 'compact' ? -19 : -16); // tighter for bots
               const hoverCls = isHero ? 'hover:z-10 hover:transform hover:translate-y-[-5px]' : '';
-              const angle = isHero ? 0 : (i === 0 ? -8 : 8); // fan cards slightly for bots
+              const angle = isHero ? 0 : 0; // removed rotation for bots to keep cards straight
               const pointerCls = isHero ? '' : 'pointer-events-none';
               return (
               <div key={i} className={`relative ${pointerCls}`} style={{ transform: `translateX(${i * overlap}px) rotate(${angle}deg)` }}>
@@ -170,10 +169,15 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
                       ? 0.72
                       : (
                           shouldShowCards
-                            ? (botDensity === 'ultra' ? 0.38 : botDensity === 'compact' ? 0.40 : 0.42)
-                            : (botDensity === 'ultra' ? 0.34 : botDensity === 'compact' ? 0.36 : 0.38)
+                            ? (botDensity === 'ultra' ? 0.55 : botDensity === 'compact' ? 0.58 : 0.62) // increased sizes for bots
+                            : (botDensity === 'ultra' ? 0.50 : botDensity === 'compact' ? 0.52 : 0.55) // increased sizes for face-down
                           )
-                  } 
+                  }
+                  aspectRatio={
+                    isHero 
+                      ? 0.73 
+                      : 0.73 // same aspect ratio for all cards
+                  }
                   className={`${isHero || shouldShowCards ? '[--card-rank-size:0.95rem] [--card-suit-size:0.95rem]' : '[--card-rank-size:0.8rem] [--card-suit-size:0.8rem]'} ${hoverCls} transition-all duration-200`}
                 />
               </div>
@@ -181,7 +185,7 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
           </div>
         )}
         <div className="mt-1" ref={chipAnchorRef}>
-          <ChipStack stack={player.chipStack} size={isHero ? 'sm' : 'xs'} columns={3} />
+          <ChipStack stack={player.chipStack} size={isHero ? 'sm' : 'sm'} columns={3} />
         </div>
       </div>
     </div>

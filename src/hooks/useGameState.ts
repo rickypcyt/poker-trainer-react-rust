@@ -3,7 +3,6 @@ import {
   createInitialTable,
   performDealerDraw,
   revealDealerDraw as revealDealerDrawEngine,
-  startNewHand,
 } from '../lib/tableEngine';
 
 import React from 'react';
@@ -144,7 +143,7 @@ export const useGameState = () => {
     }
   }, [table?.dealerDrawInProgress, table?.dealerDrawRevealed, table?.dealerDrawCards, table?.players?.length]);
 
-  // After revealing highest card, show the cards and toast, then auto-start the hand after 5 seconds
+  // After revealing highest card, show the cards and toast, but wait for user to click "Start hand now"
   React.useEffect(() => {
     if (table.dealerDrawInProgress && table.dealerDrawRevealed) {
       // Toast winner and dealer seat
@@ -160,12 +159,14 @@ export const useGameState = () => {
           }
         }
       } catch (e) {
-        try { console.warn('Dealer draw toast failed', e); } catch { /* noop */ }
+        console.error('Toast error:', e);
       }
-      const t = setTimeout(() => {
-        setTable((prev: TableState) => startNewHand(prev));
-      }, 1500);
-      return () => clearTimeout(t);
+      
+      // Removed auto-start - now waiting for user to click "Start hand now"
+      // const t = setTimeout(() => {
+      //   setTable((prev: TableState) => startNewHand(prev));
+      // }, 1500);
+      // return () => clearTimeout(t);
     }
   }, [table.dealerDrawInProgress, table.dealerDrawRevealed, table.dealerDrawCards, table.players, table.dealerIndex, table.dealingState?.highCardPlayerIndex]);
 

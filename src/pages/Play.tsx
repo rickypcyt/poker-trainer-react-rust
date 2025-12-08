@@ -6,10 +6,11 @@ import { GameControls } from '../components/GameControls';
 import { GameInfo } from '../components/GameInfo';
 import HandRankingCard from '../components/HandRankingCard';
 import LogsModal from '../components/LogsModal';
-import Navbar from '../components/Navbar';
+import { Navbar } from '../components/Navbar';
 import PokerCard from '../components/PokerCard';
 import { PokerTable } from '../components/PokerTable';
 import React from 'react';
+import { SettingsModal } from '../components/SettingsModal';
 import type { TableState } from '../types/table';
 import { startNewHand } from '../lib/tableEngine';
 import { useBotActions } from '../hooks/useBotActions';
@@ -25,7 +26,7 @@ const Play: React.FC = () => {
   const navigate = useNavigate();
   
   // Game state management
-  const { table, updateTable, endGame } = useGameState();
+  const { table, updateTable, endGame, revealDealerDraw } = useGameState();
   
   // Player actions logic
   const {
@@ -78,6 +79,9 @@ const Play: React.FC = () => {
   // Chip animations
   useChipAnimation(table, chipAnchorsRef, dealerRef, setFlyingChips);
   
+  // Local state for settings modal
+  const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
+
   // Setup overlay when starting new game
   const showSetup = React.useState<boolean>(() => {
     const savedTable = typeof window !== 'undefined' ? localStorage.getItem('poker_trainer_table') : null;
@@ -133,6 +137,10 @@ const Play: React.FC = () => {
     updateTable(startNewHand(table));
   };
 
+  const handleOpenSettings = () => {
+    setIsSettingsOpen(true);
+  };
+
   const pendingNumBots = setupConfig.numBots;
 
   return (
@@ -143,6 +151,7 @@ const Play: React.FC = () => {
         onOpenLogs={() => setIsLogsOpen(true)}
         onOpenHands={() => setIsHandsOpen(true)}
         onEndGame={handleEndGame}
+        onOpenSettings={handleOpenSettings}
       />
 
       {/* Setup overlay when starting new game */}
@@ -288,6 +297,12 @@ const Play: React.FC = () => {
         onClose={() => setIsLogsOpen(false)}
         entries={table.actionLog}
         onClear={() => updateTable({ ...table, actionLog: [] })}
+      />
+
+      {/* Settings modal */}
+      <SettingsModal 
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
       />
 
       {/* Poker Hands modal */}
@@ -471,6 +486,8 @@ const Play: React.FC = () => {
           raiseAmount={raiseAmount}
           setRaiseAmount={setRaiseAmount}
           showSetup={showSetup}
+          onRevealHighestCard={() => updateTable(revealDealerDraw(table))}
+          onStartNewHand={handleNewHand}
         />
         {/* Poker Table */}
         <PokerTable
