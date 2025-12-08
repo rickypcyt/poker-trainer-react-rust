@@ -8,6 +8,7 @@ interface GameInfoProps {
   highestBet: number;
   toCallVal: number;
   minRaiseToVal: number;
+  showSetup?: boolean;
 }
 
 export const GameInfo: React.FC<GameInfoProps> = ({
@@ -17,6 +18,7 @@ export const GameInfo: React.FC<GameInfoProps> = ({
   highestBet,
   toCallVal,
   minRaiseToVal,
+  showSetup = false,
 }) => {
   const lastActionBanner = React.useMemo(() => {
     if (!table?.actionLog || table.actionLog.length === 0) return null;
@@ -39,7 +41,7 @@ export const GameInfo: React.FC<GameInfoProps> = ({
   }, [table.actionLog]);
 
   return (
-    <div className="absolute right-2 top-2 bg-gray-900/90 backdrop-blur-md rounded-xl p-3 border border-gray-600/50 shadow-xl w-[min(360px,42vw)] z-[70]">
+    <div className={`absolute right-2 top-2 bg-black/40 border border-white/10 rounded-lg p-3 text-[11px] text-white/80 w-[min(280px,35vw)] z-[70] transition-all duration-300 ${showSetup ? 'opacity-50 blur-sm' : ''}`}>
       {lastActionBanner && (
         <div className={`mb-2 text-center text-sm font-semibold px-3 py-1 rounded-md border ${lastActionBanner.isHero ? 'bg-emerald-600/20 border-emerald-400/40 text-emerald-200' : 'bg-white/10 border-white/20 text-white/90'}`}>
           Última acción: {lastActionBanner.text}

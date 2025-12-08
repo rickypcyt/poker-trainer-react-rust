@@ -1,4 +1,3 @@
-import { CHIP_COLOR_CLASS, CHIP_DENOMS } from '../constants/chips';
 import type { Rank, Suit } from '../types/cards';
 
 import { FlyingChips } from '../components/FlyingChips';
@@ -21,15 +20,6 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerActions } from '../hooks/usePlayerActions';
 import { useUIState } from '../hooks/useUIState';
-
-// Game configuration
-const GAME_CONFIG = {
-  smallBlind: 25,
-  bigBlind: 50,
-  numBots: 2, // 2 bots + 1 human = 3 players total
-  startingChips: 5000, // $5,000 starting stack
-  chipDenominations: [1, 5, 25, 100, 500, 1000] as const,
-};
 
 const Play: React.FC = () => {
   const navigate = useNavigate();
@@ -93,6 +83,21 @@ const Play: React.FC = () => {
     const savedTable = typeof window !== 'undefined' ? localStorage.getItem('poker_trainer_table') : null;
     return !savedTable;
   })[0];
+
+  // Local state for setup configuration
+  const [setupConfig, setSetupConfig] = React.useState(() => {
+    let config = { numBots: 2, startingChips: 5000, difficulty: 'Medium' };
+    try {
+      if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('poker_trainer_config');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          config = { ...config, ...parsed };
+        }
+      }
+    } catch { /* ignore */ }
+    return config;
+  });
   
   // Get hero index for UI components
   const getHeroIndex = React.useCallback((t: TableState) => {
@@ -128,18 +133,7 @@ const Play: React.FC = () => {
     updateTable(startNewHand(table));
   };
 
-  const pendingNumBots = (() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const cfg = localStorage.getItem('poker_trainer_config');
-        if (cfg) {
-          const parsed = JSON.parse(cfg);
-          if (typeof parsed.numBots === 'number') return parsed.numBots;
-        }
-      }
-    } catch { /* ignore */ }
-    return GAME_CONFIG.numBots;
-  })();
+  const pendingNumBots = setupConfig.numBots;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-800 via-green-700 to-green-900">
@@ -156,14 +150,94 @@ const Play: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
           <div className="relative z-10 w-[92vw] max-w-md bg-neutral-900 text-white rounded-2xl border border-white/10 shadow-2xl p-6">
-            <h2 className="text-xl font-bold mb-4 text-center">Game Settings</h2>
-            <div className="space-y-5">
+            <h2 className="text-xl font-bold mb-6 text-center bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+              Game Settings
+            </h2>
+            <div className="space-y-6">
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label htmlFor="bots" className="text-white/80 text-base">Number of Bots</label>
-                  <span className="text-white font-semibold">{pendingNumBots}</span>
+                <label htmlFor="bots" className="block text-white/80 text-base mb-3 font-medium">
+                  Number of Bots
+                </label>
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => {
+                      setSetupConfig(prev => ({ ...prev, numBots: Math.max(1, prev.numBots - 1) }));
+                    }}
+                    className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+                  >
+                    <span className="text-lg">-</span>
+                  </button>
+                  <span className="flex-1 text-center text-2xl font-bold text-white">
+                    {pendingNumBots}
+                  </span>
+                  <button 
+                    onClick={() => {
+                      setSetupConfig(prev => ({ ...prev, numBots: Math.min(8, prev.numBots + 1) }));
+                    }}
+                    className="w-10 h-10 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+                  >
+                    <span className="text-lg">+</span>
+                  </button>
+                </div>
+                <p className="text-xs text-white/50 mt-2">Choose between 1-8 opponents</p>
+              </div>
+
+              <div>
+                <label className="block text-white/80 text-base mb-3 font-medium">
+                  Starting Chips
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['1000', '5000', '10000'].map(chips => (
+                    <button
+                      key={chips}
+                      onClick={() => setSetupConfig(prev => ({ ...prev, startingChips: parseInt(chips) }))}
+                      className={`py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                        setupConfig.startingChips === parseInt(chips) 
+                          ? 'bg-blue-600 text-white' 
+                          : 'bg-white/10 hover:bg-white/20 text-white/80'
+                      }`}
+                    >
+                      ${chips}
+                    </button>
+                  ))}
                 </div>
               </div>
+
+              <div>
+                <label className="block text-white/80 text-base mb-3 font-medium">
+                  Bot Difficulty
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['Easy', 'Medium', 'Hard'].map(difficulty => (
+                    <button
+                      key={difficulty}
+                      onClick={() => setSetupConfig(prev => ({ ...prev, difficulty }))}
+                      className={`py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                        setupConfig.difficulty === difficulty 
+                          ? 'bg-blue-600 text-white' 
+                          : 'bg-white/10 hover:bg-white/20 text-white/80'
+                      }`}
+                    >
+                      {difficulty}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  // Save configuration to localStorage
+                  if (typeof window !== 'undefined') {
+                    localStorage.setItem('poker_trainer_config', JSON.stringify(setupConfig));
+                    localStorage.setItem('poker_trainer_table', 'initialized');
+                  }
+                  // Close setup modal by triggering a re-render
+                  window.location.reload();
+                }}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold py-3 rounded-lg shadow-lg transition-all transform hover:scale-[1.02]"
+              >
+                Start Game
+              </button>
             </div>
           </div>
         </div>
@@ -373,17 +447,6 @@ const Play: React.FC = () => {
       )}
 
       <div className="relative w-full h-[calc(100vh-6rem)] flex items-center justify-center px-2 py-2 overflow-hidden">
-        {/* Chip legend removed; hover details are shown on each ChipStack */}
-        {/* Simple chip legend row for reference (colors and labels) */}
-        <div className="absolute left-2 top-2 flex items-center gap-2 bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-white/80">
-          {CHIP_DENOMS.map((d) => (
-            <div key={`legend-${d}`} className="flex items-center gap-1">
-              <span className={`w-3 h-3 rounded-full border border-white/50 ${CHIP_COLOR_CLASS[d]}`} />
-              <span>${d}</span>
-            </div>
-          ))}
-        </div>
-
         {/* Game Info */}
         <GameInfo
           table={table}
@@ -392,6 +455,7 @@ const Play: React.FC = () => {
           highestBet={highestBet}
           toCallVal={toCallVal}
           minRaiseToVal={minRaiseToVal}
+          showSetup={showSetup}
         />
 
         {/* Game Controls */}
@@ -406,6 +470,7 @@ const Play: React.FC = () => {
           setShowRaiseDialog={setShowRaiseDialog}
           raiseAmount={raiseAmount}
           setRaiseAmount={setRaiseAmount}
+          showSetup={showSetup}
         />
         {/* Poker Table */}
         <PokerTable

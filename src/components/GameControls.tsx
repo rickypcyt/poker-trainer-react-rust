@@ -12,6 +12,7 @@ interface GameControlsProps {
   setShowRaiseDialog: (show: boolean) => void;
   raiseAmount: number;
   setRaiseAmount: (amount: number) => void;
+  showSetup?: boolean;
 }
 
 export const GameControls: React.FC<GameControlsProps> = ({
@@ -25,6 +26,7 @@ export const GameControls: React.FC<GameControlsProps> = ({
   setShowRaiseDialog,
   raiseAmount,
   setRaiseAmount,
+  showSetup = false,
 }) => {
   const handleRaiseClick = () => {
     const hero = table.players?.find((p) => p.isHero);
@@ -38,7 +40,7 @@ export const GameControls: React.FC<GameControlsProps> = ({
   const getHero = () => table.players?.[getHeroIndex(table)];
 
   return (
-    <div className="absolute right-2 bottom-2 bg-gray-900/90 backdrop-blur-md rounded-xl p-3 border border-gray-600/50 shadow-xl w-[min(360px,42vw)] z-[70]">
+    <div className={`absolute right-2 bottom-2 bg-gray-900/90 backdrop-blur-md rounded-xl p-3 border border-gray-600/50 shadow-xl w-[min(360px,42vw)] z-[70] transition-all duration-300 ${showSetup ? 'opacity-50 blur-sm' : ''}`}>
       <h3 className="text-white font-bold text-center mb-2 text-base uppercase tracking-wider">Controls</h3>
       
       {table.dealerDrawInProgress && !table.dealerDrawRevealed ? (

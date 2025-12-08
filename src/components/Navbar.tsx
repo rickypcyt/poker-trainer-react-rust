@@ -23,9 +23,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   subtitle 
 }) => {
   return (
-    <nav className="bg-white/5 backdrop-blur-xl border-b border-white/10">
+    <nav className="bg-white/5 backdrop-blur-xl border-b border-white/10 sticky top-0 z-40">
       <div className="container mx-auto px-4 py-4">
-        <div className="grid grid-cols-3 items-center">
+        <div className="flex items-center justify-between">
           {/* Home Button */}
           <Link 
             to="/" 
@@ -40,7 +40,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </Link>
 
           {/* Title */}
-          <div className="text-center justify-self-center">
+          <div className="text-center flex-1 mx-4">
             <h1 className="text-xl sm:text-2xl font-bold text-white bg-gradient-to-r from-white to-white/80 bg-clip-text text-transparent">
               Poker Trainer
             </h1>
@@ -50,7 +50,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center space-x-2 justify-self-end">
+          <div className="flex items-center space-x-1 sm:space-x-2">
             {onMenuToggle && (
               <button 
                 className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors duration-300 md:hidden"
@@ -64,12 +64,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
             {onEndGame && (
               <button
-                className="group flex items-center space-x-2 bg-red-500/20 hover:bg-red-500/30 border border-red-400/40 hover:border-red-400/60 text-red-100 px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105"
+                className="group flex items-center space-x-1 sm:space-x-2 bg-red-500/20 hover:bg-red-500/30 border border-red-400/40 hover:border-red-400/60 text-red-100 px-2 sm:px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105 text-xs sm:text-sm"
                 onClick={onEndGame}
                 aria-label="End game"
               >
-                <div className="w-5 h-5 bg-red-500/30 rounded-md flex items-center justify-center group-hover:bg-red-500/40 transition-colors duration-300">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-4 h-4 sm:w-5 sm:h-5 bg-red-500/30 rounded-md flex items-center justify-center group-hover:bg-red-500/40 transition-colors duration-300">
+                  <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </div>
@@ -78,12 +78,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
             {onOpenLogs && (
               <button
-                className="group flex items-center space-x-2 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 text-white px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105"
+                className="group flex items-center space-x-1 sm:space-x-2 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 text-white px-2 sm:px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105 text-xs sm:text-sm"
                 onClick={onOpenLogs}
                 aria-label="Open logs"
               >
-                <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center group-hover:bg-white/30 transition-colors duration-300">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-4 h-4 sm:w-5 sm:h-5 bg-white/20 rounded-md flex items-center justify-center group-hover:bg-white/30 transition-colors duration-300">
+                  <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-6h6v6m2 4H7a2 2 0 01-2-2V7a2 2 0 012-2h3l2-2h4l2 2h3a2 2 0 012 2v12a2 2 0 01-2 2z" />
                   </svg>
                 </div>
@@ -92,12 +92,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
             {onOpenHands && (
               <button
-                className="group flex items-center space-x-2 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 text-white px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105"
+                className="group flex items-center space-x-1 sm:space-x-2 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 text-white px-2 sm:px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105 text-xs sm:text-sm"
                 onClick={onOpenHands}
                 aria-label="Open poker hands"
               >
-                <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center group-hover:bg-white/30 transition-colors duration-300">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-4 h-4 sm:w-5 sm:h-5 bg-white/20 rounded-md flex items-center justify-center group-hover:bg-white/30 transition-colors duration-300">
+                  <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h18M3 12h18M3 17h18" />
                   </svg>
                 </div>
@@ -106,12 +106,12 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
             {onShuffle && (
               <button 
-                className="group flex items-center space-x-2 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 text-white px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100" 
+                className="group flex items-center space-x-1 sm:space-x-2 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-white/30 text-white px-2 sm:px-4 py-2 rounded-xl font-medium transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 text-xs sm:text-sm" 
                 onClick={onShuffle} 
                 disabled={disabled}
               >
-                <div className="w-5 h-5 bg-white/20 rounded-md flex items-center justify-center group-hover:bg-white/30 transition-colors duration-300">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-4 h-4 sm:w-5 sm:h-5 bg-white/20 rounded-md flex items-center justify-center group-hover:bg-white/30 transition-colors duration-300">
+                  <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
                 </div>

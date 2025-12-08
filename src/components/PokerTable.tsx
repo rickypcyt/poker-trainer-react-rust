@@ -90,14 +90,16 @@ export const PokerTable: React.FC<PokerTableProps> = ({
 
   return (
     <div className="relative w-full h-[calc(100vh-6rem)] flex items-center justify-center px-2 py-2 overflow-hidden">
-      {/* Chip legend row for reference */}
-      <div className="absolute left-2 top-2 flex items-center gap-2 bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-white/80">
-        {CHIP_DENOMS.map((d) => (
-          <div key={`legend-${d}`} className="flex items-center gap-1">
-            <span className={`w-3 h-3 rounded-full border border-white/50 ${CHIP_COLOR_CLASS[d]}`} />
-            <span>${d}</span>
-          </div>
-        ))}
+      {/* Chip legend in two columns */}
+      <div className="absolute left-2 top-2 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-[11px] text-white/80">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+          {CHIP_DENOMS.map((d) => (
+            <div key={`legend-${d}`} className="flex items-center gap-1">
+              <span className={`w-3 h-3 rounded-full border border-white/50 ${CHIP_COLOR_CLASS[d]}`} />
+              <span>${d}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Poker table - larger and perfectly centered */}
