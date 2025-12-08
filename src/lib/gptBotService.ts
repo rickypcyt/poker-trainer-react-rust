@@ -11,13 +11,59 @@ export interface BotDecision {
 export class GPTBotService {
   private apiKey: string;
   private model: string;
+  private rateLimitInfo: {
+    limit: number;
+    remaining: number;
+    resetTime: number;
+    lastUpdate: number;
+  } = {
+    limit: 50,
+    remaining: 50,
+    resetTime: 0,
+    lastUpdate: 0
+  };
   private baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
   private context: Array<{role: string, content: string}> = [];
 
-  constructor(apiKey: string, model: string = (import.meta.env.VITE_OPENROUTER_MODEL || 'qwen/qwen-2.5-72b-instruct')) {
-    this.apiKey = apiKey;
-    this.model = model;
+  constructor(apiKey: string, model?: string) {
+    console.log('[GPT Bot] Initializing bot service...');
+    
+    // Prioritize environment variable for API key, then use provided key
+    const envKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+    this.apiKey = envKey || apiKey;
+    console.log('[GPT Bot] Initial API key:', this.apiKey ? '***' : 'none', '(env:', !!envKey, ')');
+    
+    // Prioritize environment variable for model, then localStorage, then provided model, then default
+    const envModel = import.meta.env.VITE_OPENROUTER_MODEL;
+    const localStorageModel = typeof window !== 'undefined' ? localStorage.getItem('poker-trainer-openrouter-model') : null;
+    this.model = envModel || model || localStorageModel || 'qwen/qwen3-235b-a22b:free';
+    console.log('[GPT Bot] Initial model resolution:', { envModel, providedModel: model, localStorageModel, final: this.model });
+    
     this.initializeContext();
+    console.log('[GPT Bot] Bot service initialized with model:', this.model);
+  }
+
+  private getRateLimitInfo() {
+    const now = Date.now();
+    // Reset if past reset time
+    if (now > this.rateLimitInfo.resetTime) {
+      this.rateLimitInfo.remaining = this.rateLimitInfo.limit;
+      this.rateLimitInfo.lastUpdate = now;
+    }
+    return this.rateLimitInfo;
+  }
+
+  private updateRateLimitInfo(headers: Headers) {
+    const limit = headers.get('X-RateLimit-Limit');
+    const remaining = headers.get('X-RateLimit-Remaining');
+    const reset = headers.get('X-RateLimit-Reset');
+    
+    if (limit) this.rateLimitInfo.limit = parseInt(limit);
+    if (remaining) this.rateLimitInfo.remaining = parseInt(remaining);
+    if (reset) this.rateLimitInfo.resetTime = parseInt(reset);
+    this.rateLimitInfo.lastUpdate = Date.now();
+    
+    console.log(`[GPT Bot] Rate limit updated: ${this.rateLimitInfo.remaining}/${this.rateLimitInfo.limit} remaining`);
   }
 
   private initializeContext() {
@@ -60,18 +106,26 @@ export class GPTBotService {
     Difficulty: ${difficulty}. Personality: ${personality}. Position: ${posName}.
     Game State:
     - Stage: ${gameState.stage}
-    - Pot: ${gameState.pot}
-    - Current bet to call: ${gameState.currentBet}
-    - Your chips: ${player.chips}
-    - Your current bet: ${player.bet}
+    - Pot: $${gameState.pot}
+    - Current bet to call: $${gameState.currentBet}
+    - Your chips: $${player.chips}
+    - Your current bet: $${player.bet}
     - Your hand: ${this.formatCards(playerHand || [])}
-    - Community cards: ${gameState.communityCards?.length > 0 ? this.formatCards(gameState.communityCards) : 'None yet'}
-    - Opponents: ${opponents.length} (${opponents.map(o => `${o.chips} chips, ${o.bet} bet`).join('; ')})
+    - Community cards (${gameState.stage}): ${gameState.communityCards?.length > 0 ? this.formatCards(gameState.communityCards) : 'No community cards dealt yet'}
+    - Board cards: ${gameState.board?.length > 0 ? this.formatCards(gameState.board) : 'No board cards'}
+    - Opponents: ${opponents.length} (${opponents.map(o => `$${o.chips} chips, $${o.bet} bet`).join('; ')})
     - Recent actions: ${lastActions || 'none'}
+    
+    STRATEGIC CONTEXT:
+    - If community cards show "None yet" but stage is Flop/Turn/River, there may be a data issue - play conservatively
+    - Consider pot odds: ${(gameState.currentBet || 0) > 0 ? ((gameState.currentBet || 0) / ((gameState.pot || 0) + (gameState.currentBet || 0)) * 100).toFixed(1) : 'N/A'}% to call
+    - Effective stack: ${Math.min(...opponents.map(o => o.chips), player.chips)} chips
+    
     Guidance:
     - Consider pot odds, stack depths (in BB), position, and aggression frequencies.
     - On Hard, prefer GTO-style ranges and sizing. On Easy, play straightforward.
     - If raising, provide a realistic total bet amount (raise-to), not just the increment.
+    - If community cards seem missing for your stage, prioritize checking/folding until cards are visible.
     Output ONLY a valid JSON object in this exact format without extra text:
     {"action": "fold|check|call|raise|allin", "amount": number, "reasoning": "brief explanation"}`;
   }
@@ -79,6 +133,25 @@ export class GPTBotService {
   async makeDecision(gameState: TableState, playerIndex: number): Promise<BotDecision> {
     console.log(`[GPT Bot] Starting decision for player ${playerIndex} at ${new Date().toISOString()}`);
     console.log(`[GPT Bot] Using model: ${this.model}`);
+    console.log(`[GPT Bot] Community cards check:`, {
+      communityCards: gameState.communityCards,
+      board: gameState.board,
+      stage: gameState.stage,
+      communityCardsLength: gameState.communityCards?.length,
+      boardLength: gameState.board?.length
+    });
+    
+    // Check rate limit status before making request
+    const rateLimitInfo = this.getRateLimitInfo();
+    if (rateLimitInfo.remaining <= 5) {
+      console.warn(`[GPT Bot] Rate limit nearly exceeded: ${rateLimitInfo.remaining} requests remaining`);
+      // Return a conservative action when rate limited
+      return {
+        action: 'check',
+        amount: 0,
+        reasoning: 'Rate limit protection - playing conservatively'
+      };
+    }
     
     const prompt = this.buildPrompt(gameState, playerIndex);
     console.log('[GPT Bot] Generated prompt:', prompt);
@@ -117,8 +190,25 @@ export class GPTBotService {
           statusText: response.statusText,
           error: errorText
         });
+        
+        // Update rate limit info from response headers
+        this.updateRateLimitInfo(response.headers);
+        
+        // Return conservative action on rate limit
+        if (response.status === 429) {
+          console.warn('[GPT Bot] Rate limit hit, using conservative fallback');
+          return {
+            action: 'check',
+            amount: 0,
+            reasoning: 'Rate limit protection - playing conservatively'
+          };
+        }
+        
         throw new Error(`API request failed with status ${response.status}: ${errorText}`);
       }
+
+      // Update rate limit info from successful response
+      this.updateRateLimitInfo(response.headers);
 
       const data = await response.json();
       console.log('[GPT Bot] Raw API response:', data);
@@ -201,10 +291,63 @@ export class GPTBotService {
     
     return { action: 'check', reasoning: 'Fallback: Default action' };
   }
+
+  updateSettings(apiKey: string, model?: string) {
+    console.log('[GPT Bot] Updating settings:', { apiKey: apiKey ? '***' : 'none', model });
+    
+    // Prioritize environment variable for API key, then use provided key
+    const envKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+    this.apiKey = envKey || apiKey;
+    console.log('[GPT Bot] Final API key:', this.apiKey ? '***' : 'none', '(env:', !!envKey, ')');
+    
+    if (model) {
+      this.model = model;
+      console.log('[GPT Bot] Using provided model:', model);
+    } else {
+      // Prioritize environment variable for model, then localStorage, then default
+      const envModel = import.meta.env.VITE_OPENROUTER_MODEL;
+      const localStorageModel = typeof window !== 'undefined' ? localStorage.getItem('poker-trainer-openrouter-model') : null;
+      this.model = envModel || localStorageModel || 'qwen/qwen3-235b-a22b:free';
+      console.log('[GPT Bot] Model resolution:', { envModel, localStorageModel, final: this.model });
+    }
+    console.log('[GPT Bot] Settings updated successfully:', { 
+      apiKey: this.apiKey ? '***' : 'none', 
+      model: this.model 
+    });
+  }
+
+  getCurrentModel(): string {
+    return this.model;
+  }
 }
 
-// Get API key from Vite environment variables
-const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || '';
+// Get API key from Vite environment variables first, then localStorage
+const getApiKey = (): string => {
+  // Prioritize environment variable
+  const envKey = import.meta.env.VITE_OPENROUTER_API_KEY;
+  if (envKey) return envKey;
+  
+  // Fallback to localStorage
+  if (typeof window !== 'undefined') {
+    const localStorageKey = localStorage.getItem('poker-trainer-openrouter-api-key');
+    if (localStorageKey) return localStorageKey;
+  }
+  
+  return '';
+};
+
+// Function to refresh the bot service with new settings
+export const refreshBotService = () => {
+  console.log('[GPT Bot] Refreshing bot service...');
+  const newApiKey = getApiKey();
+  console.log('[GPT Bot] New API key:', newApiKey ? '***' : 'none');
+  
+  const oldModel = gptBotService.getCurrentModel();
+  gptBotService.updateSettings(newApiKey);
+  const newModel = gptBotService.getCurrentModel();
+  
+  console.log('[GPT Bot] Model updated:', { from: oldModel, to: newModel });
+};
 
 // Singleton instance
-export const gptBotService = new GPTBotService(OPENROUTER_API_KEY);
+export const gptBotService = new GPTBotService(getApiKey());

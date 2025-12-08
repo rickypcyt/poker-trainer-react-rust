@@ -6,7 +6,6 @@ import {
 } from '../lib/tableEngine';
 
 import React from 'react';
-import { toast } from 'react-toastify';
 
 const GAME_CONFIG = {
   smallBlind: 25,
@@ -92,33 +91,6 @@ export const useGameState = () => {
     }
   }, [table]);
 
-  // Show toast for EVERY new log entry
-  React.useEffect(() => {
-    if (!table?.actionLog || table.actionLog.length === 0) return;
-    const lastIndex = table.actionLog.length - 1;
-    const lastEntry = table.actionLog[lastIndex];
-
-    if (!lastEntry.toastShown) {
-      toast(lastEntry.message, {
-        autoClose: 3000,
-        position: 'top-center',
-        theme: 'dark',
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-      });
-      // Mark the entry as shown to prevent duplicate toasts
-      setTable((prev: TableState) => {
-        const idx = prev.actionLog.length - 1;
-        if (idx < 0) return prev;
-        const updated = prev.actionLog.map((e, i) =>
-          i === idx ? { ...e, toastShown: true } : e
-        );
-        return { ...prev, actionLog: updated } as TableState;
-      });
-    }
-  }, [table.actionLog]);
-
   // Track hero wins in localStorage
   React.useEffect(() => {
     if (!table?.actionLog || table.actionLog.length === 0) return;
@@ -143,26 +115,18 @@ export const useGameState = () => {
     }
   }, [table?.dealerDrawInProgress, table?.dealerDrawRevealed, table?.dealerDrawCards, table?.players?.length]);
 
-  // After revealing highest card, show the cards and toast, but wait for user to click "Start hand now"
+  // After revealing highest card, show the cards, but wait for user to click "Start hand now"
   React.useEffect(() => {
-    if (table.dealerDrawInProgress && table.dealerDrawRevealed) {
-      // Toast winner and dealer seat
-      try {
-        const winnerIdx = table.dealingState?.highCardPlayerIndex ?? table.dealerIndex;
-        if (winnerIdx != null && winnerIdx >= 0) {
-          const winner = table.players?.[winnerIdx];
-          const winnerCard = table.dealerDrawCards[winner.id];
-          if (winner && winnerCard) {
-            toast.success(`${winner.name} wins the dealer button (high card ${winnerCard.rank} of ${winnerCard.suit})`);
-          } else if (winner) {
-            toast.success(`${winner.name} wins the dealer button (high card)`);
-          }
-        }
-      } catch (e) {
-        console.error('Toast error:', e);
+    if (table.dealerDrawRevealed && table.dealingState?.highCardPlayerIndex !== null && table.dealingState.highCardPlayerIndex !== undefined) {
+      const winnerIndex = table.dealingState.highCardPlayerIndex;
+      const winner = table.players[winnerIndex];
+      const winnerCard = winner?.holeCards?.[0];
+      if (winner && winnerCard) {
+        // Log winner and dealer seat to console instead of toast
+        console.log(`${winner.name} wins the dealer button (high card ${winnerCard.rank} of ${winnerCard.suit})`);
+      } else if (winner) {
+        console.log(`${winner.name} wins the dealer button (high card)`);
       }
-      
-      // Removed auto-start - now waiting for user to click "Start hand now"
       // const t = setTimeout(() => {
       //   setTable((prev: TableState) => startNewHand(prev));
       // }, 1500);

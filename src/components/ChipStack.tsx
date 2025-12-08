@@ -56,10 +56,10 @@ const ChipStack: React.FC<ChipStackProps> = ({
   } as const;
   const s = sizeClasses[size];
   const containerClass = columns === 3
-    ? `grid grid-cols-3 items-start ${s.containerGap} gap-x-2`
+    ? `grid grid-cols-3 items-center justify-center ${s.containerGap} gap-x-2`
     : columns === 2
-    ? `grid grid-cols-2 items-start ${s.containerGap} gap-x-2`
-    : `flex flex-row items-center flex-nowrap ${s.containerGap}`;
+    ? `grid grid-cols-3 grid-rows-2 items-center justify-center ${s.containerGap} gap-1`
+    : `flex flex-row items-center justify-center flex-nowrap ${s.containerGap}`;
   return (
     <div className={containerClass}>
       {denoms.map((d) => {
@@ -69,19 +69,26 @@ const ChipStack: React.FC<ChipStackProps> = ({
         return (
           <div
             key={d}
-            className={`flex items-center gap-1 bg-black/30 border border-white/20 rounded-full ${s.pill}`}
+            className={`flex items-center justify-center bg-black/30 border border-white/20 rounded-lg px-2 py-1`}
           >
-            <span className={`${s.dot} rounded-full border border-white/50 ${CHIP_COLOR_CLASS[d]}`} />
-            {showCounts && !showLabels && (
-              <span className={`text-white/80 ${s.text} font-mono`}>
-                {countFormat === 'prefixX' ? `x${count}` : `${count}×`}
-              </span>
-            )}
-            {showLabels && (
-              <span className={`text-white/90 ${s.text} font-mono`}>
-                {labelText} <span className="text-white/70">{countFormat === 'prefixX' ? `x${count}` : `${count}×`}</span>
-              </span>
-            )}
+            <span className={`${s.dot} rounded-full border border-white/50 ${CHIP_COLOR_CLASS[d]} mr-1 flex-shrink-0`} />
+            <div className="flex flex-col items-center justify-center flex-1">
+              {showCounts && !showLabels && (
+                <span className={`text-white/80 ${s.text} font-mono text-center`}>
+                  {countFormat === 'prefixX' ? `x${count}` : `${count}×`}
+                </span>
+              )}
+              {showLabels && (
+                <div className="flex flex-col items-center">
+                  <span className={`text-white/90 ${s.text} font-mono text-center`}>
+                    {labelText}
+                  </span>
+                  <span className={`text-white/70 ${s.text} font-mono text-center`}>
+                    {countFormat === 'prefixX' ? `x${count}` : `${count}×`}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         );
       })}

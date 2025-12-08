@@ -64,9 +64,9 @@ export const PokerCard: React.FC<PokerCardProps> = ({
             overflow: 'hidden'
           }}
         >
-          <div className="card-rank" style={{ fontSize: 'clamp(1rem, 1.8vw, 1.5rem)', fontWeight: 'bold' }}>{rank}</div>
-          <div className="card-suit" style={{ fontSize: 'clamp(1.5rem, 3vw, 2.5rem)', margin: 'auto 0' }}>{SUIT_SYMBOL[suit]}</div>
-          <div className="card-rank-bottom" style={{ fontSize: 'clamp(1rem, 1.8vw, 1.5rem)', fontWeight: 'bold', transform: 'rotate(180deg)' }}>{rank}</div>
+          <div className="card-rank" style={{ fontSize: 'var(--card-rank-size, clamp(1rem, 1.8vw, 1.5rem))', fontWeight: 'bold' }}>{rank}</div>
+          <div className="card-suit" style={{ fontSize: 'var(--card-suit-size, clamp(1.5rem, 3vw, 2.5rem))', margin: 'auto 0' }}>{SUIT_SYMBOL[suit]}</div>
+          <div className="card-rank-bottom" style={{ fontSize: 'var(--card-rank-size, clamp(1rem, 1.8vw, 1.5rem))', fontWeight: 'bold', transform: 'rotate(180deg)' }}>{rank}</div>
         </div>
         <div 
           className="card-face card-back"

@@ -1,4 +1,5 @@
 import type { Rank, Suit } from '../types/cards';
+import React, { useEffect } from 'react';
 
 import { FlyingChips } from '../components/FlyingChips';
 // UI components
@@ -9,7 +10,6 @@ import LogsModal from '../components/LogsModal';
 import { Navbar } from '../components/Navbar';
 import PokerCard from '../components/PokerCard';
 import { PokerTable } from '../components/PokerTable';
-import React from 'react';
 import { SettingsModal } from '../components/SettingsModal';
 import type { TableState } from '../types/table';
 import { startNewHand } from '../lib/tableEngine';
@@ -107,6 +107,15 @@ const Play: React.FC = () => {
   const getHeroIndex = React.useCallback((t: TableState) => {
     return t?.players?.findIndex(p => p.isHero) ?? -1;
   }, []);
+  
+  // Debug logging for community cards when modal opens
+  useEffect(() => {
+    if (isEndModalOpen) {
+      console.log('Community cards data:', table.communityCards, 'Board:', table.board, 'Stage:', table.stage);
+      console.log('Pot data:', table.pot, 'Hero won amount:', heroWonAmount);
+      console.log('Net result calculation:', endModalResult === 'won' ? '+' : '-', Math.abs(heroWonAmount).toLocaleString());
+    }
+  }, [isEndModalOpen, table.communityCards, table.board, table.stage, table.pot, heroWonAmount, endModalResult]);
   
   // Get max bet for UI components
   const maxBet = React.useCallback((t: TableState) => {
@@ -509,10 +518,10 @@ const Play: React.FC = () => {
 
       {/* Enhanced End-of-hand Results Dashboard */}
       {isEndModalOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-4 overflow-y-auto">
-          <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 text-white rounded-xl shadow-2xl border border-white/10 w-full max-w-7xl overflow-hidden my-8 mx-4">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-hidden">
+          <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 text-white rounded-xl shadow-2xl border border-white/10 w-full max-w-4xl overflow-hidden my-8 mx-4">
             {/* Header */}
-            <div className={`relative p-6 text-center ${endModalResult === 'won' ? 'bg-gradient-to-r from-green-600/30 to-emerald-600/30' : 'bg-gradient-to-r from-red-600/30 to-rose-600/30'}`}>
+            <div className="relative p-6 text-center">
               <div className="max-w-5xl mx-auto px-6">
                 <div className="text-4xl font-extrabold mb-2">
                   {endModalResult === 'won' ? 'You Won!' : 'Hand Over'}
@@ -555,7 +564,7 @@ const Play: React.FC = () => {
             </div>
             
             {/* Content */}
-            <div className="p-8 space-y-8 max-h-[75vh] overflow-y-auto">
+            <div className="p-8 space-y-8 max-h-[75vh] overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-transparent scrollbar-w-2">
               {/* Main Stats */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Pot Size */}
@@ -583,7 +592,7 @@ const Play: React.FC = () => {
                 {/* Your Cards */}
                 <div className="bg-zinc-800/40 rounded-xl p-4 border border-white/5 hover:border-white/10 transition-colors">
                   <div className="text-sm font-medium text-zinc-400 mb-3 px-1">Your Cards</div>
-                  <div className="flex justify-center -mx-1.5 space-x-2">
+                  <div className="flex justify-center -mx-1.5 space-x-6">
                     {hero?.holeCards?.map((card: { rank: Rank; suit: Suit }, idx: number) => (
                       <div key={idx} className="w-16 h-24 sm:w-20 sm:h-28 md:w-24 md:h-36 transform hover:-translate-y-2 transition-transform duration-200">
                         <PokerCard 
@@ -664,14 +673,11 @@ const Play: React.FC = () => {
                 <button
                   onClick={() => {
                     setIsEndModalOpen(false);
-                    handleEndGame();
+                    handleNewHand();
                   }}
-                  className="px-6 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-medium rounded-lg shadow-md hover:shadow-lg transition-all duration-200 flex-1 sm:flex-none flex items-center justify-center space-x-2"
+                  className="px-6 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-medium rounded-lg shadow-md hover:shadow-lg transition-all duration-200 flex-1 sm:flex-none flex items-center justify-center"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                  Start New Game
+                  New Hand
                 </button>
               </div>
             </div>

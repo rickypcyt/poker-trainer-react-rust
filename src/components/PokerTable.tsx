@@ -55,6 +55,16 @@ export const PokerTable: React.FC<PokerTableProps> = ({
       return { left: cx, top: cy, position: pos };
     });
     
+    // Special positioning for 4 bots - place them in corners
+    if (n === 4) {
+      return [
+        { left: 15, top: 15, position: 'top' as const },    // top-left corner
+        { left: 85, top: 15, position: 'top' as const },    // top-right corner  
+        { left: 15, top: 85, position: 'bottom' as const }, // bottom-left corner
+        { left: 85, top: 85, position: 'bottom' as const }  // bottom-right corner
+      ];
+    }
+
     // Nudge bots #1 and #10 upward when exactly 10 bots are present
     if (n === 10) {
       const up = (i: number) => {
@@ -159,8 +169,8 @@ export const PokerTable: React.FC<PokerTableProps> = ({
             </div>
 
             {/* Board area - perfectly centered in Y axis */}
-            <div className="absolute inset-0 flex items-center justify-center px-2 sm:px-4">
-              <div className="flex items-center justify-center gap-2 sm:gap-3 md:gap-4">
+            <div className="absolute inset-0 flex items-center justify-center px-4 sm:px-6">
+              <div className="flex items-center justify-center gap-3 sm:gap-4 md:gap-6">
                 {[...Array(5)].map((_, i) => (
                   <div
                     key={i}
@@ -168,14 +178,17 @@ export const PokerTable: React.FC<PokerTableProps> = ({
                       i < (table.board?.length || 0)
                         ? 'bg-white shadow-lg hover:scale-[1.02] hover:z-10 transition-transform duration-200'
                         : 'bg-white/5 border-2 border-dashed border-white/20'
-                    } flex items-center justify-center w-[clamp(56px,8vw,120px)]`}
+                    } flex items-center justify-center w-[clamp(64px,9vw,140px)]`}
                   >
                     {i < (table.board?.length || 0) && table.board?.[i] ? (
                       <PokerCard
                         suit={table.board[i].suit}
                         rank={table.board[i].rank}
-                        className="w-full h-full [--card-rank-size:0.9rem] [--card-suit-size:1.4rem]"
-                        scale={0.9}
+                        scale={0.95}
+                        style={{
+                          '--card-rank-size': '1rem',
+                          '--card-suit-size': '1.6rem'
+                        } as React.CSSProperties}
                       />
                     ) : (
                       <span className="text-white/30 text-base sm:text-base md:text-lg font-bold">{i + 1}</span>

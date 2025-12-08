@@ -1,5 +1,4 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { ToastContainer } from 'react-toastify';
 import { startHotRefreshServer, stopHotRefreshServer } from './lib/hotRefresh';
 
 import CardShuffler from './pages/CardShuffler';
@@ -28,8 +27,6 @@ function App() {
         <Route path="/play" element={<Play />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      {/* Global Toast container */}
-      <ToastContainer position="top-center" autoClose={3000} hideProgressBar theme="dark" closeOnClick newestOnTop pauseOnHover={false} />
     </>
   );
 }
