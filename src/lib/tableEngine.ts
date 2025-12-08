@@ -516,83 +516,6 @@ export function heroRaiseTo(state: TableState, raiseTo: number): TableState {
   return processNextAction(newState);
 }
 
-// Generic player-indexed actions for bots (mirror hero helpers but apply to provided index)
-function playerFold(state: TableState, idx: number): TableState {
-  if (idx < 0 || idx >= state.players.length) return state;
-  const players = state.players.map((p, i) => i === idx ? { ...p, hasFolded: true } : p);
-  const newState = {
-    ...state,
-    players,
-    currentPlayerIndex: (idx + 1) % state.players.length,
-    actionLog: [...state.actionLog, { message: `${state.players[idx].name} folded`, time: new Date().toLocaleTimeString() }]
-  };
-  const activePlayers = newState.players.filter(p => !p.hasFolded);
-  if (activePlayers.length <= 1) {
-    const winnerIndex = newState.players.findIndex(p => !p.hasFolded);
-    const awarded = awardPotToWinner(newState, winnerIndex, 'all others folded');
-    return { ...awarded, stage: 'Showdown' };
-  }
-  return processNextAction(newState);
-}
-
-function playerCall(state: TableState, idx: number): TableState {
-  if (idx < 0 || idx >= state.players.length) return state;
-  const highest = maxBet(state);
-  const pl = state.players[idx];
-  const toCall = Math.max(0, highest - pl.bet);
-  if (toCall <= 0) {
-    const newState = {
-      ...state,
-      currentPlayerIndex: (idx + 1) % state.players.length,
-      actionLog: [...state.actionLog, { message: `${pl.name} checked`, time: new Date().toLocaleTimeString() }]
-    };
-    return processNextAction(newState);
-  }
-  const pay = Math.min(toCall, pl.chips);
-  const newStack = { ...pl.chipStack };
-  const used = takeFromChipStackGreedy(newStack, pay);
-  const players = state.players.map((p, i) => i === idx ? { ...p, chips: p.chips - pay, bet: p.bet + pay, chipStack: newStack } : p);
-  const pot = state.pot + pay;
-  const potStack = { ...state.potStack };
-  addToChipStack(potStack, used);
-  const newState = {
-    ...state,
-    players,
-    pot,
-    potStack,
-    currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
-    currentPlayerIndex: (idx + 1) % state.players.length,
-    actionLog: [...state.actionLog, { message: `${pl.name} called ${pay}`, time: new Date().toLocaleTimeString() }]
-  };
-  return processNextAction(newState);
-}
-
-function playerRaiseTo(state: TableState, idx: number, raiseTo: number): TableState {
-  if (idx < 0 || idx >= state.players.length) return state;
-  const pl = state.players[idx];
-  const highest = maxBet(state);
-  const minRaiseTo = (highest || 0) + (state.bigBlind || 0);
-  const target = Math.max(raiseTo, pl.bet, minRaiseTo);
-  const delta = Math.max(0, target - pl.bet);
-  const pay = Math.min(delta, pl.chips);
-  const newStack = { ...pl.chipStack };
-  const used = takeFromChipStackGreedy(newStack, pay);
-  const players = state.players.map((p, i) => i === idx ? { ...p, chips: p.chips - pay, bet: p.bet + pay, chipStack: newStack } : p);
-  const pot = state.pot + pay;
-  const potStack = { ...state.potStack };
-  addToChipStack(potStack, used);
-  const newState = {
-    ...state,
-    players,
-    pot,
-    potStack,
-    currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
-    currentPlayerIndex: (idx + 1) % state.players.length,
-    actionLog: [...state.actionLog, { message: `${pl.name} raised to ${pl.bet + pay}`, time: new Date().toLocaleTimeString() }]
-  };
-  return processNextAction(newState);
-}
-
 // Process the next player's action (bot or human)
 export function processNextAction(state: TableState): TableState {
   // If game is already in showdown or hand is over, don't process more actions
@@ -695,45 +618,10 @@ export async function performBotActionNow(state: TableState): Promise<TableState
   
   console.log(`[performBotActionNow] Processing bot action for player ${botIndex}`);
   
-  try {
-    // Import the GPT bot service dynamically to avoid circular dependencies
-    const { gptBotService } = await import('./gptBotService');
-    
-    // Use the GPT bot service to make a decision
-    const botDecision = await gptBotService.makeDecision(state, botIndex);
-    console.log('[performBotActionNow] Bot decision:', botDecision);
-    
-    // Map the bot's decision to a game action for that bot index
-    let result: TableState;
-    switch (botDecision.action) {
-      case 'fold':
-        result = playerFold(state, botIndex);
-        break;
-      case 'check':
-      case 'call':
-        result = playerCall(state, botIndex);
-        break;
-      case 'raise':
-      case 'allin': {
-        const raiseAmount = botDecision.amount || (state.currentBet * 2);
-        result = playerRaiseTo(state, botIndex, raiseAmount);
-        break;
-      }
-      default:
-        console.warn(`[performBotActionNow] Unknown bot action: ${botDecision.action}, defaulting to call`);
-        result = playerCall(state, botIndex);
-    }
-    
-    // Clear pending index and continue to next action chain
-    return processNextAction({ ...result, botPendingIndex: null });
-    
-  } catch (error) {
-    console.error('[performBotActionNow] Error getting bot decision:', error);
-    // Fall back to the original bot logic if there's an error
-    console.log('[performBotActionNow] Falling back to original bot logic');
-    const result = decideAndApplyBotAction(state, botIndex);
-    return processNextAction({ ...result, botPendingIndex: null });
-  }
+  // Use the existing bot logic from Table Engine directly
+  console.log('[performBotActionNow] Using Table Engine bot logic');
+  const result = decideAndApplyBotAction(state, botIndex);
+  return processNextAction({ ...result, botPendingIndex: null });
 }
 
 // Core bot decision logic that adapts with difficulty

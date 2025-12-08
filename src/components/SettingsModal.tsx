@@ -1,69 +1,54 @@
 import React, { useEffect, useState } from 'react';
 
-import { refreshBotService } from '../lib/gptBotService';
+import { localBotService } from '../lib/localBotService';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-interface OpenRouterModel {
-  id: string;
+interface BotInfo {
   name: string;
-  description?: string;
-  pricing?: {
-    prompt: string;
-    completion: string;
-  };
+  description: string;
+  features: string[];
 }
 
-const OPENROUTER_MODELS: OpenRouterModel[] = [
-  { id: 'qwen/qwen3-235b-a22b:free', name: 'Qwen3 235B A22B', description: 'Modelo por defecto (Free)' },
-  { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek-TNG-R1T2-Chimera', description: 'Mejor razonamiento (Free)' },
-  { id: 'openai/gpt-oss-20b:free', name: 'GPT-OSS-20B', description: 'Más expresivo y flexible (Free)' },
-  { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air', description: 'Rápido y razonable (Free)' },
-  { id: 'nvidia/nemotron-nano-12b-v2-vl:free', name: 'Nemotron Nano 12B', description: 'Rápido y eficiente (Free)' },
-];
+const BOT_INFO: BotInfo = {
+  name: 'Local TypeScript Bot',
+  description: 'Bot local implementado en TypeScript con estrategia de poker',
+  features: [
+    'Estrategia preflop basada en categorías de manos',
+    'Análisis postflop con evaluación de fuerza',
+    'Ajustes por dificultad y personalidad',
+    'Sin dependencias externas',
+    'Respuesta instantánea'
+  ]
+};
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [selectedModel, setSelectedModel] = useState<string>('qwen/qwen3-235b-a22b:free');
+  const [currentModel, setCurrentModel] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   useEffect(() => {
-    // Load saved settings from localStorage
-    const savedModel = localStorage.getItem('poker-trainer-openrouter-model');
-    console.log('[Settings] Loading settings from localStorage:', { savedModel });
-    
-    if (savedModel) {
-      setSelectedModel(savedModel);
-      console.log('[Settings] Set model from localStorage:', savedModel);
-    } else {
-      console.log('[Settings] Using default model: qwen/qwen3-235b-a22b:free');
-    }
+    // Get current bot model info
+    const model = localBotService.getCurrentModel();
+    console.log('[Settings] Loading bot info:', { model });
+    setCurrentModel(model);
   }, []);
 
   const handleSaveSettings = async () => {
     setIsSaving(true);
-    console.log('[Settings] Starting save process...');
-    console.log('[Settings] Selected model:', selectedModel);
+    console.log('[Settings] Refreshing bot service...');
     
     try {
-      // Save to localStorage
-      localStorage.setItem('poker-trainer-openrouter-model', selectedModel);
-      console.log('[Settings] Saved to localStorage');
+      // Update the bot service
+      localBotService.updateSettings();
+      console.log('[Settings] Bot service updated');
       
-      // Update environment variables for the current session
-      if (typeof window !== 'undefined') {
-        (window as unknown as Record<string, string>).VITE_OPENROUTER_MODEL = selectedModel;
-        console.log('[Settings] Updated window environment variable');
-      }
-      
-      // Refresh the bot service with new settings
-      console.log('[Settings] Calling refreshBotService...');
-      refreshBotService();
-      console.log('[Settings] refreshBotService completed');
-      
-      console.log('[Settings] Settings saved successfully:', { model: selectedModel });
+      // Get updated model info
+      const model = localBotService.getCurrentModel();
+      setCurrentModel(model);
+      console.log('[Settings] Settings updated successfully:', { model });
       
       // Show success feedback
       setTimeout(() => {
@@ -72,7 +57,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       }, 500);
       
     } catch (error) {
-      console.error('[Settings] Error saving settings:', error);
+      console.error('[Settings] Error updating settings:', error);
       setIsSaving(false);
     }
   };
@@ -102,27 +87,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
         {/* Body */}
         <div className="p-6 space-y-6">
-          {/* AI Model Selection */}
+          {/* Bot Information */}
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-white/90">AI Model (Open Router)</h3>
-            <select
-              value={selectedModel}
-              onChange={(e) => {
-                const newModel = e.target.value;
-                console.log('[Settings] Model selection changed:', { from: selectedModel, to: newModel });
-                setSelectedModel(newModel);
-              }}
-              className="w-full px-3 py-2 bg-neutral-800/50 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all"
-            >
-              {OPENROUTER_MODELS.map((model) => (
-                <option key={model.id} value={model.id} className="bg-neutral-800">
-                  {model.name} {model.description && `- ${model.description}`}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-white/50">
-              Selected: {OPENROUTER_MODELS.find(m => m.id === selectedModel)?.name}
-            </p>
+            <h3 className="text-sm font-semibold text-white/90">Bot Engine</h3>
+            <div className="px-3 py-2 bg-neutral-800/50 border border-white/10 rounded-lg">
+              <div className="text-white text-sm font-medium">{BOT_INFO.name}</div>
+              <div className="text-white/70 text-xs mt-1">{currentModel}</div>
+            </div>
+            <div className="text-xs text-white/50">
+              {BOT_INFO.description}
+            </div>
+            
+            {/* Features List */}
+            <div className="mt-3">
+              <h4 className="text-xs font-medium text-white/70 mb-2">Características:</h4>
+              <ul className="space-y-1">
+                {BOT_INFO.features.map((feature, index) => (
+                  <li key={index} className="text-xs text-white/50 flex items-start">
+                    <span className="text-amber-400 mr-2">•</span>
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
 
           {/* Save Button */}
@@ -132,7 +119,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               disabled={isSaving}
               className="px-4 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 disabled:from-neutral-600 disabled:to-neutral-700 text-white font-medium rounded-lg transition-all duration-200 transform hover:scale-105 disabled:scale-100 disabled:opacity-50"
             >
-              {isSaving ? 'Saving...' : 'Save Settings'}
+              {isSaving ? 'Updating...' : 'Refresh Bot'}
             </button>
           </div>
         </div>
