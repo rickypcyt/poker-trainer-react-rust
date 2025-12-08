@@ -10,6 +10,7 @@ interface GameInfoProps {
   toCallVal: number;
   minRaiseToVal: number;
   showSetup?: boolean;
+  isEndModalOpen?: boolean;
 }
 
 export const GameInfo: React.FC<GameInfoProps> = ({
@@ -20,6 +21,7 @@ export const GameInfo: React.FC<GameInfoProps> = ({
   toCallVal,
   minRaiseToVal,
   showSetup = false,
+  isEndModalOpen = false,
 }) => {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -123,7 +125,11 @@ export const GameInfo: React.FC<GameInfoProps> = ({
       onMouseDown={handleMouseDown}
     >
       <div className="text-white/90 text-sm mb-2 text-center">
-        {isHeroTurn ? (
+        {isEndModalOpen && table.stage === 'Showdown' ? (
+          <div>
+            <span className="text-green-300 font-semibold">Round Finished</span>
+          </div>
+        ) : isHeroTurn ? (
           <div>
             <span className="text-emerald-300 font-semibold">Your turn</span>
           </div>
@@ -133,14 +139,16 @@ export const GameInfo: React.FC<GameInfoProps> = ({
           </div>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-2 text-[12px] text-white/80">
-        <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Stage: <span className="text-yellow-300 font-semibold">{table.stage}</span></div>
-        <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Pot: <span className="text-yellow-300 font-semibold">${(table.pot||0).toLocaleString()}</span></div>
-        <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Current bet: <span className="font-semibold">${highestBet}</span></div>
-        <div className="bg-black/40 rounded px-2 py-1 border border-white/10">To call: <span className="font-semibold">${toCallVal}</span></div>
-        <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Min raise to: <span className="font-semibold">${minRaiseToVal}</span></div>
-        <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Blinds: <span className="font-semibold">${table.smallBlind}/{table.bigBlind}</span></div>
-      </div>
+      {!(isEndModalOpen && table.stage === 'Showdown') && (
+        <div className="grid grid-cols-2 gap-2 text-[12px] text-white/80">
+          <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Stage: <span className="text-yellow-300 font-semibold">{table.stage}</span></div>
+          <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Pot: <span className="text-yellow-300 font-semibold">${(table.pot||0).toLocaleString()}</span></div>
+          <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Current bet: <span className="font-semibold">${highestBet}</span></div>
+          <div className="bg-black/40 rounded px-2 py-1 border border-white/10">To call: <span className="font-semibold">${toCallVal}</span></div>
+          <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Min raise to: <span className="font-semibold">${minRaiseToVal}</span></div>
+          <div className="bg-black/40 rounded px-2 py-1 border border-white/10">Blinds: <span className="font-semibold">${table.smallBlind}/{table.bigBlind}</span></div>
+        </div>
+      )}
       {lastActionBanner && (
         <div className={`mt-2 text-center text-sm font-semibold px-3 py-1 rounded-md border ${lastActionBanner.isHero ? 'bg-emerald-600/20 border-emerald-400/40 text-emerald-200' : 'bg-white/10 border-white/20 text-white/90'}`}>
           Last action: {lastActionBanner.text}

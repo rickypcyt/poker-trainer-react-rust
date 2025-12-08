@@ -19,6 +19,8 @@ interface GameControlsProps {
   onStartNewHand?: () => void;
   onShowRoundSummary?: () => void;
   onNewHand?: () => void;
+  onOpenStats?: () => void;
+  isGameEnded?: boolean;
 }
 
 export const GameControls: React.FC<GameControlsProps> = ({
@@ -37,6 +39,8 @@ export const GameControls: React.FC<GameControlsProps> = ({
   onStartNewHand,
   onShowRoundSummary,
   onNewHand,
+  onOpenStats,
+  isGameEnded = false,
 }) => {
   const handleRaiseClick = () => {
     const hero = table.players?.find((p) => p.isHero);
@@ -64,7 +68,7 @@ export const GameControls: React.FC<GameControlsProps> = ({
   return (
     <>
       <div 
-        className={`fixed left-1/2 bottom-4 z-50 w-full max-w-4xl bg-gradient-to-r from-neutral-900 to-neutral-800 text-white rounded-2xl border border-white/10 shadow-2xl overflow-hidden transform transition-all duration-300 ease-out translate-x-[-50%] ${
+        className={`fixed left-1/2 bottom-4 z-40 w-full max-w-4xl bg-gradient-to-r from-neutral-900 to-neutral-800 text-white rounded-2xl border border-white/10 shadow-2xl overflow-hidden transform transition-all duration-300 ease-out translate-x-[-50%] ${
           showSetup ? 'opacity-50 blur-sm' : ''
         }`}
       >
@@ -115,6 +119,15 @@ export const GameControls: React.FC<GameControlsProps> = ({
                 onClick={onNewHand}
               >
                 New Hand
+              </button>
+            </div>
+          ) : isGameEnded ? (
+            <div className="flex items-center justify-center gap-3 flex-1">
+              <button
+                className="px-4 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 font-medium border border-purple-500/30 transition-colors"
+                onClick={onOpenStats}
+              >
+                Ver Estadísticas
               </button>
             </div>
           ) : (

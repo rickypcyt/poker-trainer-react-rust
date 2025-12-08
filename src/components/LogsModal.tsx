@@ -1,7 +1,8 @@
+import type { Rank, Suit } from '../types/cards';
+import { SUIT_COLOR_CLASS, SUIT_SYMBOL } from '../constants/cards';
+
 import type { ActionLogEntry } from '../types/table';
 import React from 'react';
-import { SUIT_SYMBOL, SUIT_COLOR_CLASS } from '../constants/cards';
-import type { Rank, Suit } from '../types/cards';
 
 type LogsModalProps = {
   isOpen: boolean;
@@ -33,7 +34,30 @@ const parseCard = (cardString: string) => {
 
 const LogsModal: React.FC<LogsModalProps> = ({ isOpen, onClose, entries, onClear, title = 'Hand History' }) => {
   const [activeTab, setActiveTab] = React.useState<'all' | 'showdown' | 'actions'>('all');
+  const [selectedRound, setSelectedRound] = React.useState<number | null>(null);
   const entriesEndRef = React.useRef<HTMLDivElement>(null);
+
+  // Group entries by rounds
+  const groupByRounds = React.useMemo(() => {
+    const rounds: { [key: number]: ActionLogEntry[] } = {};
+    let currentRound = 1;
+    
+    entries.forEach(entry => {
+      if (entry.message.includes('New hand')) {
+        currentRound++;
+        rounds[currentRound] = [];
+      }
+      if (!rounds[currentRound]) {
+        rounds[currentRound] = [];
+      }
+      rounds[currentRound].push(entry);
+    });
+    
+    return rounds;
+  }, [entries]);
+
+  const roundNumbers = Object.keys(groupByRounds).map(Number).sort((a, b) => b - a);
+  const currentRoundEntries = selectedRound ? groupByRounds[selectedRound] || [] : entries;
 
   React.useEffect(() => {
     if (isOpen && entriesEndRef.current) {
@@ -57,6 +81,37 @@ const LogsModal: React.FC<LogsModalProps> = ({ isOpen, onClose, entries, onClear
             <p className="text-xs text-white/60 mt-1">{entries.length} total actions</p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Round Tabs */}
+            <div className="flex items-center space-x-1 bg-neutral-800/80 rounded-lg p-1 border border-white/10">
+              <button
+                className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                  selectedRound === null 
+                    ? 'bg-white/10 text-white' 
+                    : 'text-white/60 hover:text-white/90 hover:bg-white/5'
+                }`}
+                onClick={() => setSelectedRound(null)}
+              >
+                All Rounds
+              </button>
+              {roundNumbers.slice(0, 5).map((roundNum) => (
+                <button
+                  key={roundNum}
+                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                    selectedRound === roundNum 
+                      ? 'bg-white/10 text-white' 
+                      : 'text-white/60 hover:text-white/90 hover:bg-white/5'
+                  }`}
+                  onClick={() => setSelectedRound(roundNum)}
+                >
+                  Hand #{roundNum}
+                </button>
+              ))}
+              {roundNumbers.length > 5 && (
+                <span className="px-2 text-xs text-white/40">+{roundNumbers.length - 5} more</span>
+              )}
+            </div>
+            
+            {/* Filter Tabs */}
             <div className="flex items-center space-x-1 bg-neutral-800/80 rounded-lg p-1 border border-white/10">
               {['all', 'showdown', 'actions'].map((tab) => (
                 <button
@@ -100,19 +155,23 @@ const LogsModal: React.FC<LogsModalProps> = ({ isOpen, onClose, entries, onClear
 
         {/* Body */}
         <div className="max-h-[65vh] overflow-y-auto p-1">
-          {entries.length === 0 ? (
+          {currentRoundEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center px-4">
               <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
                 <svg className="w-8 h-8 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
-              <h3 className="text-lg font-medium text-white/90 mb-1">No actions recorded yet</h3>
-              <p className="text-white/60 text-sm max-w-md">Game actions will appear here as they happen.</p>
+              <h3 className="text-lg font-medium text-white/90 mb-1">
+                {selectedRound ? `No actions in Hand #${selectedRound}` : 'No actions recorded yet'}
+              </h3>
+              <p className="text-white/60 text-sm max-w-md">
+                {selectedRound ? 'This round may not have started yet.' : 'Game actions will appear here as they happen.'}
+              </p>
             </div>
           ) : (
             <div className="space-y-3 p-3">
-              {entries.map((entry, idx) => {
+              {currentRoundEntries.map((entry, idx) => {
                 // Skip if filtered
                 if (activeTab === 'showdown' && !entry.message.includes('Showdown')) return null;
                 if (activeTab === 'actions' && (entry.message.includes('Showdown') || entry.message.includes('wins'))) return null;
@@ -270,7 +329,8 @@ const LogsModal: React.FC<LogsModalProps> = ({ isOpen, onClose, entries, onClear
             </div>
           </div>
           <div className="text-xs text-white/40">
-            {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+            {currentRoundEntries.length} {currentRoundEntries.length === 1 ? 'entry' : 'entries'}
+            {selectedRound && ` in Hand #${selectedRound}`}
           </div>
         </div>
       </div>

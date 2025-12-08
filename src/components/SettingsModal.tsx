@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 
-import { localBotService } from '../lib/localBotService';
 import { pythonBotService } from '../lib/pythonBotService';
 
 interface SettingsModalProps {
@@ -15,42 +14,31 @@ interface BotInfo {
 }
 
 const BOT_OPTIONS: Record<string, BotInfo> = {
-  typescript: {
-    name: 'Local TypeScript Bot',
-    description: 'Bot local implementado en TypeScript con estrategia de poker',
-    features: [
-      'Estrategia preflop basada en categorías de manos',
-      'Análisis postflop con evaluación de fuerza',
-      'Ajustes por dificultad y personalidad',
-      'Sin dependencias externas',
-      'Respuesta instantánea'
-    ]
-  },
   python: {
-    name: 'Python Bot (Advanced)',
-    description: 'Bot avanzado con Monte Carlo simulation y evaluación precisa',
+    name: 'Python Bot (FastAPI + treys)',
+    description: 'Bot avanzado implementado en Python con evaluación de manos precisa',
     features: [
-      'Monte Carlo equity calculation',
-      'Evaluación precisa de manos con treys',
-      'Decisiones basadas en matemáticas',
-      'Más estratégico y preciso',
-      'Requiere servicio Python corriendo'
+      'Evaluación matemática de fuerza de manos',
+      'Estrategia basada en rangos y outs',
+      'Análisis postflop con pot odds',
+      'Personalidad y dificultad configurables',
+      'Cálculo exacto de probabilidades'
     ]
   }
 };
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [currentBot, setCurrentBot] = useState<string>('typescript');
+  const [currentBot, setCurrentBot] = useState<string>('python');
   const [currentModel, setCurrentModel] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   useEffect(() => {
-    // Get current bot selection from localStorage or default to typescript
-    const savedBot = localStorage.getItem('selectedBot') || 'typescript';
+    // Always use Python bot now
+    const savedBot = 'python';
     setCurrentBot(savedBot);
     
     // Get current bot model info
-    const model = savedBot === 'python' ? pythonBotService.getCurrentModel() : localBotService.getCurrentModel();
+    const model = pythonBotService.getCurrentModel();
     console.log('[Settings] Loading bot info:', { bot: savedBot, model });
     setCurrentModel(model);
   }, []);
@@ -63,16 +51,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       // Save bot selection to localStorage
       localStorage.setItem('selectedBot', currentBot);
       
-      // Update the bot service
-      if (currentBot === 'python') {
-        pythonBotService.updateSettings();
-      } else {
-        localBotService.updateSettings();
-      }
+      // Update the bot service - always Python now
+      pythonBotService.updateSettings();
       console.log('[Settings] Bot service updated');
       
       // Get updated model info
-      const model = currentBot === 'python' ? pythonBotService.getCurrentModel() : localBotService.getCurrentModel();
+      const model = pythonBotService.getCurrentModel();
       setCurrentModel(model);
       console.log('[Settings] Settings updated successfully:', { bot: currentBot, model });
       

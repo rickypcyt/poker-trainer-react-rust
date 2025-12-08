@@ -107,6 +107,37 @@ function awardPotToWinner(state: TableState, winnerIndex: number, reason: string
   if (state.pot <= 0) return state;
   const amount = state.pot;
   const players = state.players.map((p, i) => i === winnerIndex ? { ...p, chips: p.chips + amount } : p);
+  
+  // Gather complete hand information for logging
+  const winnerInfo = {
+    winner_index: winnerIndex,
+    winner_name: players[winnerIndex].name,
+    winner_is_hero: players[winnerIndex].isHero,
+    winning_amount: amount,
+    winning_reason: reason,
+    final_players: players.map(p => ({
+      name: p.name,
+      is_hero: p.isHero,
+      is_bot: p.isBot,
+      final_chips: p.chips,
+      final_bet: p.bet,
+      has_folded: p.hasFolded,
+      hole_cards: p.holeCards || [],
+      ai_personality: p.ai?.personality,
+      ai_difficulty: p.ai?.difficulty
+    })),
+    community_cards: state.communityCards || state.board || [],
+    final_stage: state.stage,
+    hand_number: state.handNumber,
+    dealer_index: state.dealerIndex,
+    blinds: { small: state.smallBlind, big: state.bigBlind }
+  };
+
+  // Log complete hand information
+  pythonBotService.logHandComplete(state, winnerInfo).catch(err => {
+    console.error('[Table Engine] Error logging hand completion:', err);
+  });
+
   return {
     ...state,
     players,
@@ -202,6 +233,11 @@ export function createInitialTable(config: DealConfig): TableState {
 }
 
 export function startNewHand(state: TableState): TableState {
+  // Generate hand ID for logging
+  pythonBotService.generateHandId().catch(err => {
+    console.error('[Table Engine] Error generating hand ID:', err);
+  });
+
   const nextDealer = (state.dealerIndex + (state.handNumber === 0 ? 0 : 1)) % state.players.length;
   const deck: Card[] = mapToCardDeck(shuffleDeck(createStandardDeck()));
   const players = state.players.map(p => ({ ...p, bet: 0, holeCards: [] as Card[], hasFolded: false }));
@@ -566,7 +602,19 @@ export function processNextAction(state: TableState): TableState {
   // Debug logging
   console.log(`[DEBUG] allMatched: ${allMatched}, hasAction: ${hasAnyActionThisStreet()}, currentPlayer: ${state.currentPlayerIndex}, firstToAct: ${firstToAct}, highestBet: ${highestBetNow}`);
   
-  if (allMatched && hasAnyActionThisStreet() && state.currentPlayerIndex === firstToAct) {
+  // Check if betting round is complete with improved logic
+  const shouldAdvanceStreet = allMatched && hasAnyActionThisStreet() && 
+    state.currentPlayerIndex === firstToAct;
+  
+  // Safety: detect potential infinite loops (everyone keeps checking)
+  const allPlayersChecked = activePlayersNow.length > 1 && 
+    activePlayersNow.every(p => (p.bet || 0) === 0) &&
+    hasAnyActionThisStreet() &&
+    state.actionLog.slice(-activePlayersNow.length).every(log => 
+      log.message.includes('checked')
+    );
+  
+  if (shouldAdvanceStreet || allPlayersChecked) {
     const advanced = advanceToNextStreet(state);
     return processNextAction(advanced);
   }
@@ -623,8 +671,8 @@ export async function performBotActionNow(state: TableState): Promise<TableState
   
   console.log(`[performBotActionNow] Processing bot action for player ${botIndex}`);
   
-  // Check which bot service to use
-  const selectedBot = localStorage.getItem('selectedBot') || 'typescript';
+  // Check which bot service to use - always use Python now
+  const selectedBot = 'python';
   console.log(`[performBotActionNow] Using bot service: ${selectedBot}`);
   
   if (selectedBot === 'python') {
@@ -633,36 +681,49 @@ export async function performBotActionNow(state: TableState): Promise<TableState
       console.log('[performBotActionNow] Using Python bot service');
       const decision = await pythonBotService.makeDecision(state, botIndex);
       
-      // Convert decision format
-      let action: 'Fold' | 'Call' | 'Raise' | 'AllIn';
-      switch (decision.action) {
-        case 'fold': action = 'Fold'; break;
-        case 'call': action = 'Call'; break;
-        case 'check': action = 'Call'; break; // Check is treated as call with 0 amount
-        case 'raise': action = 'Raise'; break;
-        case 'allin': action = 'AllIn'; break;
-        default: action = 'Fold';
+      // Convert decision format - use the correct BotDecision type from botService
+      let action: 'Fold' | 'Call' | 'Raise' | 'AllIn' = 'Call';
+      let amount: number | undefined = 0;
+      
+      if (decision.action === 'fold') {
+        action = 'Fold';
+      } else if (decision.action === 'check') {
+        action = 'Call';
+        // If there's a bet to match, check becomes a call for the required amount
+        const toCall = Math.max(0, maxBet(state) - state.players[botIndex].bet);
+        amount = toCall;
+      } else if (decision.action === 'call') {
+        action = 'Call';
+        amount = decision.amount || maxBet(state);
+      } else if (decision.action === 'raise') {
+        action = 'Raise';
+        amount = decision.amount || maxBet(state);
+      } else if (decision.action === 'allin') {
+        action = 'AllIn';
+        amount = state.players[botIndex].chips;
+      } else {
+        action = 'Fold';
+        amount = 0;
       }
       
-      const result = applyExternalBotDecision(state, botIndex, { 
-        action, 
-        raiseTo: decision.amount 
-      });
+      console.log(`[performBotActionNow] Python bot decided: ${action} ${amount ? `$${amount}` : ''} - ${decision.reasoning}`);
+      
+      // Apply the action using the correct function
+      const result = applyExternalBotDecision(state, botIndex, { action, raiseTo: amount });
       return processNextAction({ ...result, botPendingIndex: null });
     } catch (error) {
-      console.error('[performBotActionNow] Python bot error, falling back to TypeScript:', error);
-      // Fallback to TypeScript bot
+      console.error('[performBotActionNow] Python bot error:', error);
+      const fallback = decideAndApplyBotAction(state, botIndex);
+      return processNextAction({ ...fallback, botPendingIndex: null });
     }
   }
   
-  // Use TypeScript bot service (default or fallback)
-  console.log('[performBotActionNow] Using TypeScript bot service');
-  const result = decideAndApplyBotAction(state, botIndex);
-  return processNextAction({ ...result, botPendingIndex: null });
+  // This should never be reached since we always use Python bot
+  return state;
 }
 
-// Core bot decision logic that adapts with difficulty
-function decideAndApplyBotAction(state: TableState, botIndex: number): TableState {
+// Core bot decision logic that adapts with difficulty - DEPRECATED, using Python bot only
+export function decideAndApplyBotAction(state: TableState, botIndex: number): TableState {
   const bot = state.players[botIndex];
   const highestBet = maxBet(state);
   const toCall = Math.max(0, highestBet - bot.bet);

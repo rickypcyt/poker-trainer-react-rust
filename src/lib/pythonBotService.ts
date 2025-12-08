@@ -12,11 +12,90 @@ export interface BotDecision {
 
 export class PythonBotService {
   private apiBase: string;
+  private currentHandId: string | null = null;
 
   constructor(apiBase: string = 'http://localhost:8001') {
     this.apiBase = apiBase;
     console.log('[Python Bot] Initializing Python bot service...');
     console.log('[Python Bot] Bot service initialized successfully');
+  }
+
+  async generateHandId(): Promise<string> {
+    try {
+      const response = await fetch(`${this.apiBase}/hand_id`);
+      const data = await response.json();
+      if (data.hand_id) {
+        this.currentHandId = data.hand_id;
+        console.log(`[Python Bot] Generated hand ID: ${this.currentHandId}`);
+        return this.currentHandId;
+      } else {
+        throw new Error('No hand_id in response');
+      }
+    } catch (error) {
+      console.error('[Python Bot] Error generating hand ID:', error);
+      // Fallback: generate simple ID
+      const fallbackId = `hand_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      this.currentHandId = fallbackId;
+      return fallbackId;
+    }
+  }
+
+  getCurrentHandId(): string | null {
+    return this.currentHandId;
+  }
+
+  async logHandComplete(gameState: TableState, winnerInfo: Record<string, unknown>): Promise<void> {
+    if (!this.currentHandId) {
+      console.warn('[Python Bot] No hand ID available for logging');
+      return;
+    }
+
+    try {
+      // Gather complete hand information
+      const handData = {
+        final_stage: gameState.stage,
+        final_pot: gameState.pot,
+        community_cards: (gameState.communityCards || gameState.board || []).map(card => this.convertCard(card)),
+        players: gameState.players.map((player, index) => ({
+          name: player.name,
+          is_hero: player.isHero,
+          position: this.getPositionName(index, gameState.players.length, gameState.dealerIndex),
+          chips_start: player.chips + player.bet, // Approximate start chips
+          chips_end: player.chips,
+          final_bet: player.bet,
+          has_folded: player.hasFolded,
+          hole_cards: (player.holeCards || []).map(card => this.convertCard(card)),
+          ai_personality: player.ai?.personality,
+          ai_difficulty: player.ai?.difficulty
+        })),
+        action_log: gameState.actionLog || [],
+        dealer_index: gameState.dealerIndex,
+        big_blind: gameState.bigBlind,
+        small_blind: gameState.smallBlind,
+        winner_info: winnerInfo,
+        hand_duration: Date.now() - (this.currentHandId ? parseInt(this.currentHandId.split('_')[1]) : Date.now())
+      };
+
+      const response = await fetch(`${this.apiBase}/hand_complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          hand_id: this.currentHandId,
+          final_results: handData
+        })
+      });
+
+      if (response.ok) {
+        console.log(`[Python Bot] Hand ${this.currentHandId} logged successfully`);
+        this.currentHandId = null; // Reset for next hand
+      } else {
+        console.error('[Python Bot] Error logging hand completion:', await response.text());
+      }
+    } catch (error) {
+      console.error('[Python Bot] Error logging hand complete:', error);
+    }
   }
 
   private convertCard(card: Card) {
@@ -76,6 +155,7 @@ export class PythonBotService {
       pot: gameState.pot,
       highestBet: highestBet,
       toCall: toCall,
+      hand_id: this.currentHandId, // Include hand_id for logging
       bot: {
         chips: player.chips,
         bet: player.bet,

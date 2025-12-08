@@ -3,6 +3,10 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 import random
 import json
+import os
+from datetime import datetime, date
+import threading
+from pathlib import Path
 
 # treys for hand evaluation / Monte Carlo equity
 try:
@@ -71,11 +75,87 @@ class DecideRequest(BaseModel):
     players: List[PlayerModel]
     board: List[CardModel] = []
     context: GameContext
+    hand_id: Optional[str] = None  # Add hand_id for logging
 
 class DecideResponse(BaseModel):
     action: str
     raiseTo: Optional[int] = None
     rationale: Optional[str] = None
+
+# ----------------------
+# JSON Logging System
+# ----------------------
+class PokerLogger:
+    def __init__(self):
+        self.logs_dir = Path("logs")
+        self.logs_dir.mkdir(exist_ok=True)
+        self.current_day = date.today().isoformat()
+        self.current_file = None
+        self.lock = threading.Lock()
+        self._ensure_daily_file()
+    
+    def _ensure_daily_file(self):
+        """Ensure we have a file for the current day."""
+        today = date.today().isoformat()
+        if today != self.current_day or self.current_file is None:
+            self.current_day = today
+            self.current_file = self.logs_dir / f"poker_decisions_{today}.json"
+            # Initialize file if it doesn't exist
+            if not self.current_file.exists():
+                with open(self.current_file, 'w') as f:
+                    json.dump({}, f, indent=2)
+    
+    def log_decision(self, hand_id: str, decision_data: Dict[str, Any]):
+        """Log a decision to the JSON file."""
+        with self.lock:
+            self._ensure_daily_file()
+            
+            # Read existing data
+            try:
+                with open(self.current_file, 'r') as f:
+                    all_data = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                all_data = {}
+            
+            # Ensure date structure exists
+            if self.current_day not in all_data:
+                all_data[self.current_day] = {}
+            
+            # Ensure hand structure exists
+            if hand_id not in all_data[self.current_day]:
+                all_data[self.current_day][hand_id] = {
+                    "hand_start_time": datetime.now().isoformat(),
+                    "decisions": []
+                }
+            
+            # Add decision with timestamp
+            decision_data["timestamp"] = datetime.now().isoformat()
+            all_data[self.current_day][hand_id]["decisions"].append(decision_data)
+            
+            # Write back to file
+            with open(self.current_file, 'w') as f:
+                json.dump(all_data, f, indent=2)
+    
+    def log_hand_complete(self, hand_id: str, final_data: Dict[str, Any]):
+        """Mark a hand as complete with final results."""
+        with self.lock:
+            self._ensure_daily_file()
+            
+            try:
+                with open(self.current_file, 'r') as f:
+                    all_data = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                return
+            
+            if self.current_day in all_data and hand_id in all_data[self.current_day]:
+                all_data[self.current_day][hand_id]["hand_end_time"] = datetime.now().isoformat()
+                all_data[self.current_day][hand_id]["final_results"] = final_data
+                
+                with open(self.current_file, 'w') as f:
+                    json.dump(all_data, f, indent=2)
+
+# Global logger instance
+poker_logger = PokerLogger()
 
 # ----------------------
 # Helpers
@@ -320,6 +400,13 @@ app.add_middleware(
 async def health():
     return {"status": "ok"}
 
+@app.get("/hand_id")
+async def generate_hand_id():
+    """Generate a unique hand ID for logging purposes."""
+    import uuid
+    hand_id = f"hand_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
+    return {"hand_id": hand_id}
+
 @app.post("/decide", response_model=DecideResponse)
 async def decide(req: DecideRequest):
     print(f"\n=== PYTHON BOT: REQUEST RECEIVED ===")
@@ -331,6 +418,7 @@ async def decide(req: DecideRequest):
     print(f"Context: SPR={req.context.effectiveStack/req.pot:.1f if req.pot > 0 else 'inf'}, Players={req.context.playersActive}")
     print(f"Action History: {len(req.context.actionHistory)} actions")
     print(f"Dealer Position: {req.context.dealerPosition}")
+    print(f"Hand ID: {req.hand_id}")
     print("=" * 40)
     
     if TreysCard is None:
@@ -340,11 +428,55 @@ async def decide(req: DecideRequest):
         print(f"Decision: {result.action} {f'to {result.raiseTo}' if result.raiseTo else ''}")
         print(f"Rationale: {result.rationale}")
         print("=" * 40 + "\n")
+        
+        # Log the decision if hand_id is provided
+        if req.hand_id:
+            decision_data = {
+                "stage": req.stage,
+                "bot_position": req.bot.position,
+                "bot_chips": req.bot.chips,
+                "bot_bet": req.bot.bet,
+                "bot_hole_cards": [{"rank": card.rank, "suit": card.suit} for card in req.bot.holeCards],
+                "board_cards": [{"rank": card.rank, "suit": card.suit} for card in req.board],
+                "pot": req.pot,
+                "highest_bet": req.highestBet,
+                "to_call": req.toCall,
+                "effective_stack": req.context.effectiveStack,
+                "players_active": req.context.playersActive,
+                "dealer_position": req.context.dealer_position,
+                "action_history": [
+                    {
+                        "player_index": a.playerIndex,
+                        "action": a.action,
+                        "amount": a.amount,
+                        "street": a.street
+                    } for a in req.context.actionHistory
+                ],
+                "decision": {
+                    "action": result.action,
+                    "raise_to": result.raiseTo,
+                    "rationale": result.rationale
+                },
+                "bot_personality": req.bot.personality,
+                "bot_difficulty": req.bot.difficulty,
+                "min_raise": req.context.minRaise,
+                "max_raise": req.context.maxRaise,
+                "can_check": req.context.canCheck,
+                "can_raise": req.context.canRaise
+            }
+            poker_logger.log_decision(req.hand_id, decision_data)
+        
         return result
     except Exception as e:
         print(f"ERROR: {e}")
         print("=" * 40 + "\n")
         return DecideResponse(action='Fold', rationale=f'error: {str(e)}')
+
+@app.post("/hand_complete")
+async def hand_complete(hand_id: str, final_results: Dict[str, Any]):
+    """Log hand completion with final results."""
+    poker_logger.log_hand_complete(hand_id, final_results)
+    return {"status": "logged", "hand_id": hand_id}
 
 @app.get("/debug")
 async def debug():

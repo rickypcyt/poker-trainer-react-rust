@@ -1,4 +1,5 @@
 import type { Rank, Suit } from '../types/cards';
+import { SUIT_COLOR_CLASS, SUIT_SYMBOL } from '../constants/cards';
 
 import { FlyingChips } from '../components/FlyingChips';
 // UI components
@@ -32,7 +33,6 @@ const Play: React.FC = () => {
   const {
     handlePlayerAction,
     handleQuickBet,
-    hero,
     highestBet,
     toCallVal,
     minRaiseToVal,
@@ -145,11 +145,15 @@ const Play: React.FC = () => {
     // Prevent new properties with game-related names
     const gameProps = ['table', 'players', 'holeCards', 'gameState', '__TABLE_STATE__'];
     gameProps.forEach(prop => {
-      Object.defineProperty(window, prop, {
-        get: () => undefined,
-        set: () => {},
-        configurable: false
-      });
+      try {
+        Object.defineProperty(window, prop, {
+          get: () => undefined,
+          set: () => {},
+          configurable: true // Allow redefinition to prevent errors
+        });
+      } catch {
+        // Property already defined or can't be redefined - safe to ignore
+      }
     });
     
     return () => {
@@ -172,6 +176,55 @@ const Play: React.FC = () => {
     return Math.max(byField, byPlayers);
   }, []);
   
+  // Determine winner and their hand for round summary
+  const getWinnerInfo = React.useCallback(() => {
+    if (!table || !table.players || table.stage !== 'Showdown') return null;
+    
+    // Find the actual winner from the action log
+    const winnerLog = table.actionLog.find(log => 
+      log.message.includes('wins the pot')
+    );
+    
+    if (!winnerLog) {
+      console.log('[DEBUG] No winner log found');
+      return null;
+    }
+    
+    // Extract winner name from log message
+    const winnerName = winnerLog.message.split(' ')[0];
+    console.log('[DEBUG] Winner name from log:', winnerName);
+    
+    const winner = table.players.find(p => p.name === winnerName);
+    console.log('[DEBUG] Found winner player:', winner?.name, 'isHero:', winner?.isHero);
+    
+    if (!winner) {
+      console.log('[DEBUG] Winner player not found in players array');
+      return null;
+    }
+    
+    return { winner, hand: null };
+  }, [table]);
+  
+  // Extract winning cards from the winner log message
+  const getWinningCards = React.useCallback(() => {
+    if (!table) return [];
+    
+    const winnerLog = table.actionLog.find(log => 
+      log.message.includes('wins the pot')
+    );
+    
+    if (!winnerLog) return [];
+    
+    // Extract card information from the log message
+    // Example: "Showdown high card A of hearts" -> ["A", "hearts"]
+    const match = winnerLog.message.match(/([A2-9JQK]) of (hearts|diamonds|clubs|spades)/i);
+    if (match) {
+      return [{ rank: match[1] as Rank, suit: match[2].toLowerCase() as Suit }];
+    }
+    
+    return [];
+  }, [table]);
+
   // Current actor name for display
   const currentActorName = isHeroTurn ? 'You' : (table.players?.[table.currentPlayerIndex || 0]?.name || 'Player');
 
@@ -527,6 +580,7 @@ const Play: React.FC = () => {
           highestBet={highestBet}
           toCallVal={toCallVal}
           minRaiseToVal={minRaiseToVal}
+          isEndModalOpen={isEndModalOpen}
           showSetup={showSetup}
         />
 
@@ -547,6 +601,8 @@ const Play: React.FC = () => {
           onStartNewHand={handleNewHand}
           onShowRoundSummary={() => setIsEndModalOpen(true)}
           onNewHand={handleNewHand}
+          onOpenStats={() => setIsLogsOpen(true)}
+          isGameEnded={table.stage === 'Showdown' && table.actionLog.some(log => log.message.includes('Game ended — unfinished'))}
         />
         {/* Poker Table */}
         <PokerTable
@@ -574,12 +630,22 @@ const Play: React.FC = () => {
             <div className="relative p-6 text-center">
               <div className="max-w-5xl mx-auto px-6">
                 <div className="text-4xl font-extrabold mb-2">
-                  {endModalResult === 'won' ? 'You Won!' : 'Hand Over'}
+                  {(() => {
+                    const winnerInfo = getWinnerInfo();
+                    if (winnerInfo?.winner) {
+                      return winnerInfo.winner.isHero ? 'You Won!' : `${winnerInfo.winner.name} Won!`;
+                    }
+                    return 'Hand Over';
+                  })()}
                 </div>
                 <div className="text-xl opacity-90 mb-2">
-                  {endModalResult === 'won' 
-                    ? 'You won the hand!'
-                    : 'Hand completed'}
+                  {(() => {
+                    const winnerInfo = getWinnerInfo();
+                    if (winnerInfo?.winner) {
+                      return winnerInfo.winner.isHero ? 'You won the hand!' : `${winnerInfo.winner.name} won the hand!`;
+                    }
+                    return 'Hand completed';
+                  })()}
                 </div>
                 {heroWonAmount !== 0 && (
                   <>
@@ -615,40 +681,217 @@ const Play: React.FC = () => {
             
             {/* Content */}
             <div className="p-8 space-y-8 max-h-[75vh] overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-transparent scrollbar-w-2">
-              {/* Main Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
-                {/* Your Chips */}
-                <div className="bg-zinc-800/50 rounded-xl p-5 border border-white/10 hover:border-white/20 transition-colors">
-                  <div className="text-sm font-medium text-zinc-400 mb-1">Your Chips</div>
-                  <div className="text-2xl font-bold">${hero?.chips?.toLocaleString() || '0'}</div>
-                  {heroWonAmount !== 0 && (
-                    <div className={`text-lg font-medium mt-2 ${
-                      endModalResult === 'won' ? 'text-green-400' : 'text-red-400'
-                    }`}>
-                      {endModalResult === 'won' ? `+${heroWonAmount}` : `${-Math.abs(heroWonAmount)}`}
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 -mt-4">
-                {/* Your Cards */}
-                <div className="bg-zinc-800/40 rounded-xl p-4 border border-white/5 hover:border-white/10 transition-colors">
-                  <div className="text-sm font-medium text-zinc-400 mb-3 px-1">Your Cards</div>
-                  <div className="flex justify-center -mx-1.5 space-x-6">
-                    {hero?.holeCards?.map((card: { rank: Rank; suit: Suit }, idx: number) => (
-                      <div key={idx} className="w-16 h-24 sm:w-20 sm:h-28 md:w-24 md:h-36 transform hover:-translate-y-2 transition-transform duration-200">
-                        <PokerCard 
-                          rank={card.rank} 
-                          suit={card.suit} 
-                          isFaceDown={false} 
-                          className="w-full h-full"
-                        />
+              {/* Winner Information */}
+              {(() => {
+                const winnerInfo = getWinnerInfo();
+                const winningCards = getWinningCards();
+                
+                if (!winnerInfo?.winner) return null;
+                
+                // Check if a card is part of the winning combination
+                const isWinningCard = (card: { rank: Rank; suit: Suit }) => {
+                  return winningCards.some(wc => wc.rank === card.rank && wc.suit === card.suit);
+                };
+                
+                return (
+                  <div className="bg-zinc-800/40 rounded-xl p-6 border border-white/5 hover:border-white/10 transition-colors">
+                    <div className="text-center">
+                      <div className="text-sm font-medium text-zinc-400 mb-3">
+                        {winnerInfo.winner.isHero ? 'Your Winning Hand' : `${winnerInfo.winner.name}'s Winning Hand`}
                       </div>
-                    ))}
+                      
+                      {/* Winning hand type */}
+                      <div className="mb-4">
+                        <div className="text-2xl font-bold text-yellow-400 mb-2">
+                          {(() => {
+                            // Extract hand type from the winner log message
+                            const winnerLog = table.actionLog.find(log => 
+                              log.message.includes('wins the pot') && log.message.includes(winnerInfo.winner.name)
+                            );
+                            if (winnerLog) {
+                              const match = winnerLog.message.match(/\(([^)]+)\)/);
+                              return match ? match[1] : 'High Card';
+                            }
+                            return 'High Card';
+                          })()}
+                        </div>
+                      </div>
+                      
+                      {/* Winner's cards */}
+                      {winnerInfo.winner.holeCards && winnerInfo.winner.holeCards.length >= 2 && (
+                        <div className="flex justify-center -mx-1.5 space-x-6 mb-4">
+                          {winnerInfo.winner.holeCards.map((card, idx) => (
+                            <div key={idx} className={`w-16 h-24 sm:w-20 sm:h-28 md:w-24 md:h-36 transform hover:-translate-y-2 transition-all duration-200 ${
+                              isWinningCard(card) ? 'ring-4 ring-yellow-400 ring-opacity-60 shadow-lg shadow-yellow-400/30' : ''
+                            }`}>
+                              <div 
+                                className={`card card-3d transition-all duration-200 w-full h-full ${
+                                  isWinningCard(card) ? 'scale-105' : ''
+                                }`} 
+                                style={{
+                                  transform: `scale(${isWinningCard(card) ? 1.05 : 1})`,
+                                  width: 'calc(0.73 * clamp(5.5rem, 11vw, 9.5rem))',
+                                  height: 'clamp(5.5rem, 11vw, 9.5rem)',
+                                  minWidth: 'calc(0.73 * clamp(5.5rem, 11vw, 9.5rem))',
+                                  minHeight: 'clamp(5.5rem, 11vw, 9.5rem)',
+                                  overflow: 'hidden'
+                                }}
+                              >
+                                <div 
+                                  className="card-inner" 
+                                  style={{ 
+                                    transitionDuration: '600ms', 
+                                    transitionDelay: '0ms',
+                                    width: '100%',
+                                    height: '100%',
+                                    position: 'relative',
+                                    transformStyle: 'preserve-3d'
+                                  }}
+                                >
+                                  <div 
+                                    className={`card-face card-front ${SUIT_COLOR_CLASS[card.suit]}`}
+                                    style={{
+                                      position: 'absolute',
+                                      width: '100%',
+                                      height: '100%',
+                                      backfaceVisibility: 'hidden',
+                                      borderRadius: '0.5rem',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      justifyContent: 'space-between',
+                                      padding: '0.25rem',
+                                      boxSizing: 'border-box',
+                                      outline: 'none',
+                                      border: 'none',
+                                      overflow: 'hidden'
+                                    }}
+                                  >
+                                    <div className="card-rank" style={{ fontSize: 'var(--card-rank-size, clamp(1rem, 1.8vw, 1.5rem))', fontWeight: 'bold', alignSelf: 'flex-start' }}>{card.rank}</div>
+                                    <div className="card-suit" style={{ fontSize: 'var(--card-suit-size, clamp(1.5rem, 3vw, 2.5rem))', alignSelf: 'center' }}>{SUIT_SYMBOL[card.suit]}</div>
+                                    <div className="card-rank-bottom" style={{ fontSize: 'var(--card-rank-size, clamp(1rem, 1.8vw, 1.5rem))', fontWeight: 'bold', transform: 'rotate(180deg)', alignSelf: 'flex-end' }}>{card.rank}</div>
+                                  </div>
+                                  <div 
+                                    className="card-face card-back"
+                                    style={{
+                                      position: 'absolute',
+                                      width: '100%',
+                                      height: '100%',
+                                      backfaceVisibility: 'hidden',
+                                      borderRadius: '0.5rem',
+                                      background: 'linear-gradient(135deg, rgb(26, 54, 93) 0%, rgb(44, 82, 130) 100%)',
+                                      outline: 'none',
+                                      border: 'none',
+                                      transform: 'rotateY(180deg)'
+                                    }}
+                                  >
+                                    <div 
+                                      className="card-back-pattern" 
+                                      style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        background: 'repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1) 2px, transparent 2px, transparent 4px)',
+                                        borderRadius: '0.5rem'
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {/* Community cards if available */}
+                      {table.board && table.board.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-white/10">
+                          <div className="text-xs font-medium text-zinc-500 mb-2">Community Cards</div>
+                          <div className="flex justify-center -mx-1 space-x-3">
+                            {table.board.map((card, idx) => (
+                              <div key={idx} className={`w-10 h-14 sm:w-12 sm:h-16 md:w-14 md:h-20 transform hover:-translate-y-1 transition-all duration-200 ${
+                                isWinningCard(card) ? 'ring-4 ring-yellow-400 ring-opacity-60 shadow-lg shadow-yellow-400/30' : ''
+                              }`}>
+                                <div 
+                                  className={`card card-3d transition-all duration-200 w-full h-full ${
+                                    isWinningCard(card) ? 'scale-105' : ''
+                                  }`} 
+                                  style={{
+                                    transform: `scale(${isWinningCard(card) ? 1.05 : 1})`,
+                                    width: 'calc(0.73 * clamp(4rem, 8vw, 7rem))',
+                                    height: 'clamp(4rem, 8vw, 7rem)',
+                                    minWidth: 'calc(0.73 * clamp(4rem, 8vw, 7rem))',
+                                    minHeight: 'clamp(4rem, 8vw, 7rem)',
+                                    overflow: 'hidden'
+                                  }}
+                                >
+                                  <div 
+                                    className="card-inner" 
+                                    style={{ 
+                                      transitionDuration: '600ms', 
+                                      transitionDelay: '0ms',
+                                      width: '100%',
+                                      height: '100%',
+                                      position: 'relative',
+                                      transformStyle: 'preserve-3d'
+                                    }}
+                                  >
+                                    <div 
+                                      className={`card-face card-front text-neutral-900`}
+                                      style={{
+                                        position: 'absolute',
+                                        width: '100%',
+                                        height: '100%',
+                                        backfaceVisibility: 'hidden',
+                                        borderRadius: '0.5rem',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        justifyContent: 'space-between',
+                                        padding: '0.25rem',
+                                        boxSizing: 'border-box',
+                                        outline: 'none',
+                                        border: 'none',
+                                        overflow: 'hidden',
+                                        backgroundColor: 'white'
+                                      }}
+                                    >
+                                      <div className="card-rank" style={{ fontSize: 'var(--card-rank-size, clamp(0.8rem, 1.5vw, 1.2rem))', fontWeight: 'bold', alignSelf: 'flex-start' }}>{card.rank}</div>
+                                      <div className="card-suit" style={{ fontSize: 'var(--card-suit-size, clamp(1rem, 2vw, 1.8rem))', alignSelf: 'center' }}>{SUIT_SYMBOL[card.suit]}</div>
+                                      <div className="card-rank-bottom" style={{ fontSize: 'var(--card-rank-size, clamp(0.8rem, 1.5vw, 1.2rem))', fontWeight: 'bold', transform: 'rotate(180deg)', alignSelf: 'flex-end' }}>{card.rank}</div>
+                                    </div>
+                                    <div 
+                                      className="card-face card-back"
+                                      style={{
+                                        position: 'absolute',
+                                        width: '100%',
+                                        height: '100%',
+                                        backfaceVisibility: 'hidden',
+                                        borderRadius: '0.5rem',
+                                        background: 'linear-gradient(135deg, rgb(26, 54, 93) 0%, rgb(44, 82, 130) 100%)',
+                                        outline: 'none',
+                                        border: 'none',
+                                        transform: 'rotateY(180deg)'
+                                      }}
+                                    >
+                                      <div 
+                                        className="card-back-pattern" 
+                                        style={{
+                                          width: '100%',
+                                          height: '100%',
+                                          background: 'repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1) 2px, transparent 2px, transparent 4px)',
+                                          borderRadius: '0.5rem'
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
+                );
+              })()}
               
               {/* Players - Money Leaderboard */}
               <div className="bg-zinc-800/30 rounded-xl p-5 border border-white/5">
@@ -718,18 +961,14 @@ const Play: React.FC = () => {
                           
                           {/* Money Info */}
                           <div className="text-right">
-                            <div className="font-mono font-bold text-lg text-white">
-                              ${player.chips.toLocaleString()}
-                            </div>
-                            <div className={`text-sm font-medium mt-1 ${
-                              player.netChange > 0 ? 'text-green-400' : player.netChange < 0 ? 'text-red-400' : 'text-zinc-400'
-                            }`}>
-                              {player.netChange !== 0 && (
-                                <>
-                                  {player.netChange > 0 ? '+' : ''}{player.netChange}
-                                </>
-                              )}
-                            </div>
+                            <div className="font-mono font-bold text-lg text-white">${player.chips.toLocaleString()}</div>
+                            {player.netChange !== 0 && (
+                              <div className={`text-sm font-medium mt-1 ${
+                                player.netChange > 0 ? 'text-green-400' : 'text-red-400'
+                              }`}>
+                                {player.netChange > 0 ? `+$${player.netChange.toLocaleString()}` : `-$${Math.abs(player.netChange).toLocaleString()}`}
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
