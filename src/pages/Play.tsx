@@ -4,7 +4,6 @@ import { SUIT_COLOR_CLASS, SUIT_SYMBOL } from '../constants/cards';
 import { FlyingChips } from '../components/FlyingChips';
 // UI components
 import { GameControls } from '../components/GameControls';
-import { GameInfo } from '../components/GameInfo';
 import HandRankingCard from '../components/HandRankingCard';
 import LogsModal from '../components/LogsModal';
 import { Navbar } from '../components/Navbar';
@@ -12,7 +11,9 @@ import PokerCard from '../components/PokerCard';
 import { PokerTable } from '../components/PokerTable';
 import React from 'react';
 import { SettingsModal } from '../components/SettingsModal';
+import { StatusBar } from '../components/StatusBar';
 import type { TableState } from '../types/table';
+import { evaluateHand } from '../lib/handEvaluator';
 import { startNewHand } from '../lib/tableEngine';
 import { useBotActions } from '../hooks/useBotActions';
 import { useChipAnimation } from '../hooks/useChipAnimation';
@@ -33,7 +34,6 @@ const Play: React.FC = () => {
   const {
     handlePlayerAction,
     handleQuickBet,
-    highestBet,
     toCallVal,
     minRaiseToVal,
     isHeroTurn,
@@ -162,6 +162,19 @@ const Play: React.FC = () => {
     };
   }, []);
 
+  // Snapshot chip stacks at the start of each hand for stable leaderboard deltas
+  React.useEffect(() => {
+    if (!table?.actionLog || table.actionLog.length === 0) return;
+    const lastMsg = table.actionLog[table.actionLog.length - 1]?.message || '';
+    if (/New hand #/i.test(lastMsg)) {
+      try {
+        const stacks: Record<string, number> = {};
+        table.players.forEach(p => { stacks[p.id] = p.chips; });
+        localStorage.setItem('poker_trainer_last_hand_start', JSON.stringify({ handNumber: table.handNumber, stacks }));
+      } catch { /* ignore */ }
+    }
+  }, [table.actionLog, table.handNumber, table.players]);
+
   // Get hero index for UI components
   const getHeroIndex = React.useCallback((t: TableState) => {
     return t?.players?.findIndex(p => p.isHero) ?? -1;
@@ -186,47 +199,30 @@ const Play: React.FC = () => {
     );
     
     if (!winnerLog) {
-      console.log('[DEBUG] No winner log found');
       return null;
     }
     
     // Extract winner name from log message
     const winnerName = winnerLog.message.split(' ')[0];
-    console.log('[DEBUG] Winner name from log:', winnerName);
     
     const winner = table.players.find(p => p.name === winnerName);
-    console.log('[DEBUG] Found winner player:', winner?.name, 'isHero:', winner?.isHero);
     
     if (!winner) {
-      console.log('[DEBUG] Winner player not found in players array');
       return null;
     }
     
-    return { winner, hand: null };
-  }, [table]);
-  
-  // Extract winning cards from the winner log message
-  const getWinningCards = React.useCallback(() => {
-    if (!table) return [];
-    
-    const winnerLog = table.actionLog.find(log => 
-      log.message.includes('wins the pot')
-    );
-    
-    if (!winnerLog) return [];
-    
-    // Extract card information from the log message
-    // Example: "Showdown high card A of hearts" -> ["A", "hearts"]
-    const match = winnerLog.message.match(/([A2-9JQK]) of (hearts|diamonds|clubs|spades)/i);
-    if (match) {
-      return [{ rank: match[1] as Rank, suit: match[2].toLowerCase() as Suit }];
+    // If hero has 0 chips, they lost and game is over
+    const heroPlayer = table.players.find(p => p.isHero);
+    if (heroPlayer && heroPlayer.chips === 0 && winner.isHero) {
+      // Hero "won" but has 0 chips, game over
+      return { winner: null, hand: null, gameOver: true };
     }
     
-    return [];
+    return { winner, hand: null, gameOver: false };
   }, [table]);
+  
+  
 
-  // Current actor name for display
-  const currentActorName = isHeroTurn ? 'You' : (table.players?.[table.currentPlayerIndex || 0]?.name || 'Player');
 
   // Safety check: if table is in invalid state, show loading or error
   if (!table || !table.players || !Array.isArray(table.players)) {
@@ -267,7 +263,10 @@ const Play: React.FC = () => {
       {/* Setup overlay when starting new game */}
       {showSetup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+          <div 
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm" 
+            onClick={() => setShowSetup(false)} 
+          />
           <div className="relative z-10 w-[92vw] max-w-md bg-neutral-900 text-white rounded-2xl border border-white/10 shadow-2xl p-6">
             <h2 className="text-xl font-bold mb-6 text-center bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
               Game Settings
@@ -365,7 +364,10 @@ const Play: React.FC = () => {
       {/* End of hand modal */}
       {isEndModalOpen && endModalResult && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/70" />
+          <div 
+            className="absolute inset-0 bg-black/70" 
+            onClick={() => setIsEndModalOpen(false)} 
+          />
           <div className="relative bg-slate-900 text-white rounded-xl shadow-2xl border border-white/10 w-[92vw] max-w-[520px] p-6">
             <div className="text-center mb-4">
               <div className={`text-2xl font-extrabold ${endModalResult === 'won' ? 'text-green-400' : 'text-red-400'}`}>
@@ -382,9 +384,21 @@ const Play: React.FC = () => {
               </button>
               <button
                 className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white font-semibold py-2 rounded-md shadow"
-                onClick={() => { setIsEndModalOpen(false); setReveal(false); updateTable(startNewHand(table)); }}
+                onClick={() => { 
+                  setIsEndModalOpen(false); 
+                  setReveal(false); 
+                  const winnerInfo = getWinnerInfo();
+                  if (winnerInfo?.gameOver) {
+                    handleEndGame(); // Start new game if game over
+                  } else {
+                    updateTable(startNewHand(table)); // Start new hand if just lost
+                  }
+                }}
               >
-                Nueva mano
+                {(() => {
+                  const winnerInfo = getWinnerInfo();
+                  return winnerInfo?.gameOver ? 'Nuevo juego' : 'Nueva mano';
+                })()}
               </button>
             </div>
             <div className="flex gap-3 mt-3">
@@ -571,52 +585,59 @@ const Play: React.FC = () => {
         </div>
       )}
 
-      <div className="relative w-full h-[calc(100vh-6rem)] flex items-start justify-center px-2 py-4 lg:py-2 overflow-hidden">
-        {/* Game Info */}
-        <GameInfo
-          table={table}
-          isHeroTurn={isHeroTurn}
-          currentActorName={currentActorName}
-          highestBet={highestBet}
-          toCallVal={toCallVal}
-          minRaiseToVal={minRaiseToVal}
-          isEndModalOpen={isEndModalOpen}
-          showSetup={showSetup}
-        />
+      <div className="relative w-full flex flex-row" style={{ height: 'calc(100vh - 6rem)' }}>
+        {/* Left Panel - StatusBar */}
+        <div className="flex-shrink-0">
+          <StatusBar
+            isHeroTurn={isHeroTurn}
+            stage={table.stage}
+            currentBet={maxBet(table)}
+            toCall={toCallVal}
+            minRaiseTo={minRaiseToVal}
+            smallBlind={table.smallBlind}
+            bigBlind={table.bigBlind}
+            lastAction={table.actionLog?.[table.actionLog.length - 1]?.message}
+          />
+        </div>
 
-        {/* Game Controls */}
-        <GameControls
-          table={table}
-          isHeroTurn={isHeroTurn}
-          handlePlayerAction={handlePlayerAction}
-          handleQuickBet={handleQuickBet}
-          getHeroIndex={getHeroIndex}
-          maxBet={maxBet}
-          showRaiseDialog={showRaiseDialog}
-          setShowRaiseDialog={setShowRaiseDialog}
-          raiseAmount={raiseAmount}
-          setRaiseAmount={setRaiseAmount}
-          showSetup={showSetup}
-          onRevealHighestCard={() => updateTable(revealDealerDraw(table))}
-          onStartNewHand={handleNewHand}
-          onShowRoundSummary={() => setIsEndModalOpen(true)}
-          onNewHand={handleNewHand}
-          onOpenStats={() => setIsLogsOpen(true)}
-          isGameEnded={table.stage === 'Showdown' && table.actionLog.some(log => log.message.includes('Game ended — unfinished'))}
-        />
-        {/* Poker Table */}
-        <PokerTable
-          table={table}
-          reveal={reveal}
-          isDealing={isDealing}
-          potRef={potRef}
-          dealerRef={dealerRef}
-          chipAnchorsRef={chipAnchorsRef}
-          seatActions={seatActions}
-          isBotThinking={isBotThinking}
-          currentBotIndex={currentBotIndex ?? null}
-        /> 
-        
+        {/* Main Content Area */}
+        <div className="flex-1 flex items-start justify-center px-2 py-1 lg:py-0 overflow-hidden">
+          {/* Poker Table */}
+          <PokerTable
+            table={table}
+            reveal={reveal}
+            isDealing={isDealing}
+            potRef={potRef}
+            dealerRef={dealerRef}
+            chipAnchorsRef={chipAnchorsRef}
+            seatActions={seatActions}
+            isBotThinking={isBotThinking}
+            currentBotIndex={currentBotIndex ?? null}
+          />
+        </div>
+
+        {/* Right Panel - Game Controls */}
+        <div className="flex-shrink-0">
+          <GameControls
+            table={table}
+            isHeroTurn={isHeroTurn}
+            handlePlayerAction={handlePlayerAction}
+            handleQuickBet={handleQuickBet}
+            getHeroIndex={getHeroIndex}
+            maxBet={maxBet}
+            showRaiseDialog={showRaiseDialog}
+            setShowRaiseDialog={setShowRaiseDialog}
+            raiseAmount={raiseAmount}
+            setRaiseAmount={setRaiseAmount}
+            showSetup={showSetup}
+            onRevealHighestCard={() => updateTable(revealDealerDraw(table))}
+            onStartNewHand={handleNewHand}
+            onShowRoundSummary={() => setIsEndModalOpen(true)}
+            onNewHand={handleNewHand}
+            onOpenStats={() => setIsLogsOpen(true)}
+            isGameEnded={table.stage === 'Showdown' && table.actionLog.some(log => log.message.includes('Game ended — unfinished'))}
+          />
+        </div>
       </div>
 
       {/* Flying chips overlay */}
@@ -625,13 +646,20 @@ const Play: React.FC = () => {
       {/* Enhanced End-of-hand Results Dashboard */}
       {isEndModalOpen && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-hidden">
-          <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 text-white rounded-xl shadow-2xl border border-white/10 w-full max-w-4xl overflow-hidden my-8 mx-4">
+          <div 
+            className="absolute inset-0" 
+            onClick={() => setIsEndModalOpen(false)} 
+          />
+          <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 text-white rounded-xl shadow-2xl border border-white/10 w-full max-w-4xl overflow-hidden my-8 mx-4 relative z-10">
             {/* Header */}
             <div className="relative p-6 text-center">
               <div className="max-w-5xl mx-auto px-6">
                 <div className="text-4xl font-extrabold mb-2">
                   {(() => {
                     const winnerInfo = getWinnerInfo();
+                    if (winnerInfo?.gameOver) {
+                      return 'Game Over';
+                    }
                     if (winnerInfo?.winner) {
                       return winnerInfo.winner.isHero ? 'You Won!' : `${winnerInfo.winner.name} Won!`;
                     }
@@ -641,6 +669,9 @@ const Play: React.FC = () => {
                 <div className="text-xl opacity-90 mb-2">
                   {(() => {
                     const winnerInfo = getWinnerInfo();
+                    if (winnerInfo?.gameOver) {
+                      return 'You lost all your chips!';
+                    }
                     if (winnerInfo?.winner) {
                       return winnerInfo.winner.isHero ? 'You won the hand!' : `${winnerInfo.winner.name} won the hand!`;
                     }
@@ -684,15 +715,14 @@ const Play: React.FC = () => {
               {/* Winner Information */}
               {(() => {
                 const winnerInfo = getWinnerInfo();
-                const winningCards = getWinningCards();
-                
                 if (!winnerInfo?.winner) return null;
-                
-                // Check if a card is part of the winning combination
-                const isWinningCard = (card: { rank: Rank; suit: Suit }) => {
-                  return winningCards.some(wc => wc.rank === card.rank && wc.suit === card.suit);
-                };
-                
+                const board = ((table.communityCards && table.communityCards.length > 0) ? table.communityCards : table.board) || [];
+                const handEval = evaluateHand(winnerInfo.winner.holeCards || [], board);
+                // Use evaluator-highlighted cards to mark winners on UI
+                const highlighted = handEval?.highlighted_cards || [];
+                const isWinningCard = (card: { rank: Rank; suit: Suit }) =>
+                  highlighted.some(wc => wc.rank === card.rank && wc.suit === card.suit);
+
                 return (
                   <div className="bg-zinc-800/40 rounded-xl p-6 border border-white/5 hover:border-white/10 transition-colors">
                     <div className="text-center">
@@ -704,15 +734,9 @@ const Play: React.FC = () => {
                       <div className="mb-4">
                         <div className="text-2xl font-bold text-yellow-400 mb-2">
                           {(() => {
-                            // Extract hand type from the winner log message
-                            const winnerLog = table.actionLog.find(log => 
-                              log.message.includes('wins the pot') && log.message.includes(winnerInfo.winner.name)
-                            );
-                            if (winnerLog) {
-                              const match = winnerLog.message.match(/\(([^)]+)\)/);
-                              return match ? match[1] : 'High Card';
-                            }
-                            return 'High Card';
+                            const board = ((table.communityCards && table.communityCards.length > 0) ? table.communityCards : table.board) || [];
+                            const handEval = evaluateHand(winnerInfo.winner.holeCards || [], board);
+                            return handEval?.combination_type || 'High Card';
                           })()}
                         </div>
                       </div>
@@ -721,12 +745,12 @@ const Play: React.FC = () => {
                       {winnerInfo.winner.holeCards && winnerInfo.winner.holeCards.length >= 2 && (
                         <div className="flex justify-center -mx-1.5 space-x-6 mb-4">
                           {winnerInfo.winner.holeCards.map((card, idx) => (
-                            <div key={idx} className={`w-16 h-24 sm:w-20 sm:h-28 md:w-24 md:h-36 transform hover:-translate-y-2 transition-all duration-200 ${
-                              isWinningCard(card) ? 'ring-4 ring-yellow-400 ring-opacity-60 shadow-lg shadow-yellow-400/30' : ''
-                            }`}>
+                            <div key={idx} className="w-16 h-24 sm:w-20 sm:h-28 md:w-24 md:h-36 transform hover:-translate-y-2 transition-all duration-200">
                               <div 
-                                className={`card card-3d transition-all duration-200 w-full h-full ${
-                                  isWinningCard(card) ? 'scale-105' : ''
+                                className={`card card-3d transition-all duration-200 w-full h-full rounded-lg ${
+                                  isWinningCard(card)
+                                    ? 'scale-105 ring-4 ring-yellow-400 ring-opacity-60 shadow-lg shadow-yellow-400/30 ring-offset-2 ring-offset-zinc-900'
+                                    : ''
                                 }`} 
                                 style={{
                                   transform: `scale(${isWinningCard(card) ? 1.05 : 1})`,
@@ -807,12 +831,12 @@ const Play: React.FC = () => {
                           <div className="text-xs font-medium text-zinc-500 mb-2">Community Cards</div>
                           <div className="flex justify-center -mx-1 space-x-3">
                             {table.board.map((card, idx) => (
-                              <div key={idx} className={`w-10 h-14 sm:w-12 sm:h-16 md:w-14 md:h-20 transform hover:-translate-y-1 transition-all duration-200 ${
-                                isWinningCard(card) ? 'ring-4 ring-yellow-400 ring-opacity-60 shadow-lg shadow-yellow-400/30' : ''
-                              }`}>
+                              <div key={idx} className="w-10 h-14 sm:w-12 sm:h-16 md:w-14 md:h-20 transform hover:-translate-y-1 transition-all duration-200">
                                 <div 
-                                  className={`card card-3d transition-all duration-200 w-full h-full ${
-                                    isWinningCard(card) ? 'scale-105' : ''
+                                  className={`card card-3d transition-all duration-200 w-full h-full rounded-md ${
+                                    isWinningCard(card)
+                                      ? 'scale-105 ring-4 ring-yellow-400 ring-opacity-60 shadow-lg shadow-yellow-400/30 ring-offset-2 ring-offset-zinc-900'
+                                      : ''
                                   }`} 
                                   style={{
                                     transform: `scale(${isWinningCard(card) ? 1.05 : 1})`,
@@ -897,18 +921,27 @@ const Play: React.FC = () => {
               <div className="bg-zinc-800/30 rounded-xl p-5 border border-white/5">
                 <div className="text-sm font-medium text-zinc-400 mb-3">💰 Money Leaderboard</div>
                 <div className="space-y-3">
-                  {table.players
-                    .map((player: { name: string; chips: number; bet: number; hasFolded: boolean; isHero?: boolean }, idx: number) => {
-                      const isWinner = player.isHero && endModalResult === 'won';
-                      const isActive = !player.hasFolded;
-                      
-                      // Calculate net change for all players
-                      const netChange = player.isHero 
-                        ? (endModalResult === 'won' ? heroWonAmount : -Math.abs(heroWonAmount))
-                        : (5000 - player.chips) * (Math.random() > 0.5 ? 1 : -1); // Simulate realistic bot changes
-                      
-                      return { ...player, netChange, isWinner, isActive, originalIndex: idx };
-                    })
+                  {(() => {
+                    // Load baseline stacks stored at hand start
+                    let baseline: Record<string, number> = {};
+                    try {
+                      const raw = localStorage.getItem('poker_trainer_last_hand_start');
+                      if (raw) {
+                        const parsed = JSON.parse(raw);
+                        baseline = parsed?.stacks || {};
+                      }
+                    } catch { /* ignore */ }
+
+                    return table.players
+                      .map((player: { id: string; name: string; chips: number; bet: number; hasFolded: boolean; isHero?: boolean }, idx: number) => {
+                        const isWinner = player.isHero && endModalResult === 'won';
+                        const isActive = !player.hasFolded;
+                        // Deterministic net change: current chips minus baseline at hand start
+                        const startChips = baseline[player.id] ?? player.chips;
+                        const netChange = player.chips - startChips;
+                        return { ...player, netChange, startChips, isWinner, isActive, originalIndex: idx };
+                      });
+                  })()
                     .sort((a, b) => b.chips - a.chips) // Sort by chips descending
                     .map((player, rank) => {
                       const isHero = player.isHero;
@@ -955,6 +988,9 @@ const Play: React.FC = () => {
                                 <div className="text-xs text-zinc-400">
                                   {player.isActive ? 'Active' : 'Folded'}
                                 </div>
+                                <div className="text-[11px] text-zinc-500 mt-0.5">
+                                  Start: ${typeof player.startChips === 'number' ? player.startChips.toLocaleString() : player.startChips}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -986,11 +1022,19 @@ const Play: React.FC = () => {
                 <button
                   onClick={() => {
                     setIsEndModalOpen(false);
-                    handleNewHand();
+                    const winnerInfo = getWinnerInfo();
+                    if (winnerInfo?.gameOver) {
+                      handleEndGame(); // Start new game if game over
+                    } else {
+                      handleNewHand(); // Start new hand if just lost
+                    }
                   }}
                   className="px-6 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-medium rounded-lg shadow-md hover:shadow-lg transition-all duration-200 flex-1 sm:flex-none flex items-center justify-center"
                 >
-                  New Hand
+                  {(() => {
+                    const winnerInfo = getWinnerInfo();
+                    return winnerInfo?.gameOver ? 'New Game' : 'New Hand';
+                  })()}
                 </button>
               </div>
             </div>

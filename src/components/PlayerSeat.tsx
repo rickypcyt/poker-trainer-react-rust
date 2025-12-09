@@ -87,7 +87,7 @@ const PlayerSeat: React.FC<PlayerSeatProps> = ({
     ? 'top-1/2 -translate-y-1/2 left-full ml-1'
     : position === 'right'
       ? 'top-1/2 -translate-y-1/2 right-full mr-1'
-      : (isHero ? '-top-8 left-1/2 -translate-x-1/2' : '-top-7 left-1/2 -translate-x-1/2');
+      : (isHero ? '-top-10 left-1/2 -translate-x-1/2' : '-top-7 left-1/2 -translate-x-1/2');
 
   return (
     <div data-position={position} className={`relative flex items-center justify-center ${isHero ? 'gap-2' : (botDensity === 'ultra' ? 'gap-1' : 'gap-1.5')} ${isHero ? 'bg-black/20' : 'bg-black/30 border border-white/20'} rounded-lg ${activeClass} ${highlightClass} ${foldedClass} ${isHighlighted ? 'w-auto min-w-[180px]' : 'min-w-[160px]'} ${isHero ? 'p-1' : 'p-2'}`}>

@@ -1,4 +1,3 @@
-import { CHIP_COLOR_CLASS, CHIP_DENOMS } from '../constants/chips';
 import type { ChipStack as ChipStackType, Player, TableState } from '../types/table';
 
 import ChipStack from './ChipStack';
@@ -100,20 +99,8 @@ export const PokerTable: React.FC<PokerTableProps> = ({
 
   return (
     <div className="relative w-full h-[calc(100vh-6rem)] flex items-center justify-center px-2 py-2 overflow-hidden">
-      {/* Chip legend in two columns */}
-      <div className="absolute left-2 top-2 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-[11px] text-white/80">
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-          {CHIP_DENOMS.map((d) => (
-            <div key={`legend-${d}`} className="flex items-center gap-1">
-              <span className={`w-3 h-3 rounded-full border border-white/50 ${CHIP_COLOR_CLASS[d]}`} />
-              <span>${d}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Poker table - larger and perfectly centered */}
-      <div className="relative w-[90vw] max-w-[1400px] lg:max-w-[1600px] h-[65vh] min-h-[500px] lg:h-[70vh]">
+      <div className="relative w-[95vw] max-w-[1600px] lg:max-w-[1800px] h-[60vh] min-h-[500px] lg:h-[65vh] -mt-8">
         {/* Dealer position - higher on the table */}
         <div ref={dealerRef} className="absolute left-1/2 -translate-x-1/2 -top-12 z-10">
           <Dealer isDealing={isDealing} />
@@ -202,7 +189,7 @@ export const PokerTable: React.FC<PokerTableProps> = ({
         
         {/* Hero bottom center */}
         {players?.filter((p: Player) => p.isHero).map((p: Player) => (
-          <div key={p.id} className="absolute left-1/2 bottom-2 -translate-x-1/2">
+          <div key={p.id} className="absolute left-1/2 -bottom-16 -translate-x-1/2">
             <PlayerSeat
               player={p}
               isDealer={players?.indexOf(p) === dealerIndex}

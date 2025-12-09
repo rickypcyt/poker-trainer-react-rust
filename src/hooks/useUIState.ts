@@ -63,7 +63,15 @@ export const useUIState = (table: TableState) => {
           }
         }
       }
+      
+      // Additional check: if hero has 0 chips, they lost regardless of winner log
+      const heroPlayer = table.players.find(p => p.isHero);
+      if (heroPlayer && heroPlayer.chips === 0) {
+        heroWon = false;
+      }
+      
       const result = heroWon ? 'won' : 'lost';
+      console.log('[DEBUG] Final result:', result, 'heroWon:', heroWon, 'hero chips:', heroPlayer?.chips);
       setEndModalResult(result);
       const winAmount = Math.abs(table.pot || 0);
       setHeroWonAmount(heroWon ? winAmount : -winAmount);
@@ -72,7 +80,7 @@ export const useUIState = (table: TableState) => {
     }, 1500); // 1.5 second delay to see the cards
     
     return () => clearTimeout(timer);
-  }, [table.stage, table.handNumber, table.actionLog, table.pot]);
+  }, [table.stage, table.handNumber, table.actionLog, table.pot, table.players]);
 
   // Mini action bubbles near players: derive from last actionLog
   React.useEffect(() => {

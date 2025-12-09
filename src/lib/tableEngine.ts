@@ -3,6 +3,7 @@ import type { ChipStack, DealConfig, Difficulty, Personality, Player, TableState
 import type { Card } from './pokerService';
 import type { DeckCard } from '../types/cards';
 import { createStandardDeck } from './deck';
+import { evaluateHand } from './handEvaluator';
 import { pythonBotService } from './pythonBotService';
 import { shuffleDeck } from './shuffle';
 
@@ -26,6 +27,33 @@ function takeFromChipStackGreedy(stack: ChipStack, amount: number): ChipStack {
     }
   }
   return used;
+}
+
+function formatCard(c: Card): string {
+  return `${c.rank}${c.suit[0].toUpperCase()}`;
+}
+
+function logHandDetails(state: TableState, players: Player[], winnerIndex: number, amount: number, reason?: string): void {
+  const board: Card[] = (state.communityCards && state.communityCards.length > 0)
+    ? state.communityCards
+    : (state.board || []);
+  const hero = players.find(p => p.isHero);
+  const opponents = players.filter(p => !p.isHero);
+
+  const winner = players[winnerIndex];
+  const winnerEval = evaluateHand(winner.holeCards || [], board);
+
+  const heroCards = hero?.holeCards?.map(formatCard).join(' ') || '??';
+  const oppLines = opponents.map(o => `${o.name}: ${(o.holeCards || []).map(formatCard).join(' ') || '??'}`).join(' | ');
+  const boardStr = board.map(formatCard).join(' ');
+
+  // Output
+  console.log('=== Hand Summary ===');
+  console.log(`Board: ${boardStr}`);
+  if (hero) console.log(`Hero (${hero.name}): ${heroCards}`);
+  if (opponents.length) console.log(`Opponents: ${oppLines}`);
+  console.log(`Winner: ${winner.name} wins $${amount}${reason ? ` (${reason})` : ''}`);
+  console.log(`Winning hand: ${winnerEval.combination_type}`);
 }
 
 // Mutate dest by adding counts from src; return dest for convenience
@@ -133,6 +161,14 @@ function awardPotToWinner(state: TableState, winnerIndex: number, reason: string
     blinds: { small: state.smallBlind, big: state.bigBlind }
   };
 
+  // Log detailed hand information to console
+  logHandDetails(state, players, winnerIndex, amount, reason);
+
+  // Log round end before hand completion
+  pythonBotService.logRoundEnd(state, winnerInfo).catch(err => {
+    console.error('[Table Engine] Error logging round end:', err);
+  });
+
   // Log complete hand information
   pythonBotService.logHandComplete(state, winnerInfo).catch(err => {
     console.error('[Table Engine] Error logging hand completion:', err);
@@ -234,7 +270,14 @@ export function createInitialTable(config: DealConfig): TableState {
 
 export function startNewHand(state: TableState): TableState {
   // Generate hand ID for logging
-  pythonBotService.generateHandId().catch(err => {
+  pythonBotService.generateHandId().then(() => {
+    // Log round start after hand ID is generated
+    setTimeout(() => {
+      pythonBotService.logRoundStart(state).catch(err => {
+        console.error('[Table Engine] Error logging round start:', err);
+      });
+    }, 100); // Small delay to ensure state is updated
+  }).catch(err => {
     console.error('[Table Engine] Error generating hand ID:', err);
   });
 
@@ -607,12 +650,31 @@ export function processNextAction(state: TableState): TableState {
     state.currentPlayerIndex === firstToAct;
   
   // Safety: detect potential infinite loops (everyone keeps checking)
+  // Check if all active players have checked in this betting round
   const allPlayersChecked = activePlayersNow.length > 1 && 
     activePlayersNow.every(p => (p.bet || 0) === 0) &&
     hasAnyActionThisStreet() &&
-    state.actionLog.slice(-activePlayersNow.length).every(log => 
-      log.message.includes('checked')
-    );
+    // Count checks in this street only (since street start)
+    (() => {
+      // Identify the last marker that starts the current street
+      const isStreetStart = (msg: string): boolean => {
+        if (state.stage === 'PreFlop') return /New hand #/i.test(msg) || /posts (small|big) blind/i.test(msg);
+        if (state.stage === 'Flop') return /Dealing the flop/i.test(msg);
+        if (state.stage === 'Turn') return /Dealing the turn/i.test(msg);
+        if (state.stage === 'River') return /Dealing the river/i.test(msg);
+        return false;
+      };
+      let lastStreetStart = -1;
+      for (let i = state.actionLog.length - 1; i >= 0; i--) {
+        const m = state.actionLog[i]?.message || '';
+        if (isStreetStart(m)) { lastStreetStart = i; break; }
+      }
+      // Count checks after last street start
+      const checksAfterStart = state.actionLog
+        .slice(Math.max(0, lastStreetStart + 1))
+        .filter(entry => /\bchecked\b/i.test(entry.message || '')).length;
+      return checksAfterStart >= activePlayersNow.length;
+    })();
   
   if (shouldAdvanceStreet || allPlayersChecked) {
     const advanced = advanceToNextStreet(state);
@@ -904,6 +966,7 @@ export function decideAndApplyBotAction(state: TableState, botIndex: number): Ta
       const newState = {
         ...state,
         players,
+        currentBet: state.currentBet, // Keep current bet unchanged
         currentPlayerIndex: (botIndex + 1) % state.players.length,
         actionLog: [...state.actionLog, { message: `${bot.name} folded`, time: new Date().toLocaleTimeString() }]
       };
@@ -927,6 +990,7 @@ export function decideAndApplyBotAction(state: TableState, botIndex: number): Ta
         players,
         pot: state.pot + pay,
         potStack: addToChipStack({ ...state.potStack }, used),
+        currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
         currentPlayerIndex: (botIndex + 1) % state.players.length,
         actionLog: [...state.actionLog, { message: `${bot.name} called ${pay}`, time: new Date().toLocaleTimeString() }]
       };
@@ -942,6 +1006,7 @@ export function decideAndApplyBotAction(state: TableState, botIndex: number): Ta
         players,
         pot: state.pot + pay,
         potStack: addToChipStack({ ...state.potStack }, used),
+        currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
         currentPlayerIndex: (botIndex + 1) % state.players.length,
         actionLog: [...state.actionLog, { message: `${bot.name} went all-in (${pay})`, time: new Date().toLocaleTimeString(), isImportant: true }]
       };
@@ -975,6 +1040,7 @@ export function decideAndApplyBotAction(state: TableState, botIndex: number): Ta
         players,
         pot: state.pot + pay,
         potStack: addToChipStack({ ...state.potStack }, used),
+        currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
         currentPlayerIndex: (botIndex + 1) % state.players.length,
         actionLog: [...state.actionLog, { message: `${bot.name} raised to ${highestBet + raiseAmount}`, time: new Date().toLocaleTimeString() }]
       };
@@ -1170,6 +1236,7 @@ export function decideAndApplyBotAction(state: TableState, botIndex: number): Ta
     // Check
     const newState = { 
       ...state, 
+      currentBet: state.currentBet, // Keep current bet unchanged on check
       currentPlayerIndex: (botIndex + 1) % state.players.length,
       actionLog: [
         ...state.actionLog, 
@@ -1299,6 +1366,7 @@ export function applyExternalBotDecision(
     const next = {
       ...state,
       players,
+      currentBet: state.currentBet, // Keep current bet unchanged on fold
       currentPlayerIndex: (botIndex + 1) % state.players.length,
       actionLog: [...state.actionLog, { message: `${bot.name} folded`, time: new Date().toLocaleTimeString() }]
     } as TableState;
@@ -1325,6 +1393,7 @@ export function applyExternalBotDecision(
       players,
       pot: state.pot + pay,
       potStack: addToChipStack({ ...state.potStack }, used),
+      currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
       currentPlayerIndex: (botIndex + 1) % state.players.length,
       actionLog: [...state.actionLog, { message: actionMessage, time: new Date().toLocaleTimeString() }]
     } as TableState;
@@ -1340,6 +1409,7 @@ export function applyExternalBotDecision(
       players,
       pot: state.pot + pay,
       potStack: addToChipStack({ ...state.potStack }, used),
+      currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
       currentPlayerIndex: (botIndex + 1) % state.players.length,
       actionLog: [...state.actionLog, { message: `${bot.name} went all-in (${pay})`, time: new Date().toLocaleTimeString(), isImportant: true }]
     } as TableState;
@@ -1360,6 +1430,7 @@ export function applyExternalBotDecision(
       players: playersCall,
       pot: state.pot + payCall,
       potStack: addToChipStack({ ...state.potStack }, usedCall),
+      currentBet: playersCall.reduce((m, p) => Math.max(m, p.bet || 0), 0),
       currentPlayerIndex: (botIndex + 1) % state.players.length,
       actionLog: [...state.actionLog, { message: `${bot.name} called ${payCall}`, time: new Date().toLocaleTimeString() }]
     } as TableState;
@@ -1372,6 +1443,7 @@ export function applyExternalBotDecision(
     players,
     pot: state.pot + pay,
     potStack: addToChipStack({ ...state.potStack }, used),
+    currentBet: players.reduce((m, p) => Math.max(m, p.bet || 0), 0),
     currentPlayerIndex: (botIndex + 1) % state.players.length,
     actionLog: [...state.actionLog, { message: `${bot.name} raised to ${bot.bet + pay}`, time: new Date().toLocaleTimeString() }]
   } as TableState;

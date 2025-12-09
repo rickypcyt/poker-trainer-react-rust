@@ -76,7 +76,10 @@ export const usePlayerActions = (table: TableState, updateTable: (table: TableSt
   const heroIdx = getHeroIndex(table);
   const hero = table.players?.[heroIdx];
   const highestBet = maxBet(table);
-  const toCallVal = Math.max(0, highestBet - (hero?.bet || 0));
+  // Required to call this street
+  const requiredToCall = Math.max(0, highestBet - (hero?.bet || 0));
+  // For UI, cap to hero's stack so when opponent is all-in bigger, it displays hero's all-in amount
+  const toCallVal = Math.min(requiredToCall, hero?.chips || 0);
   const minRaiseToVal = Math.max((table.bigBlind || 0), (highestBet || 0) + (table.bigBlind || 0));
   const isHeroTurn = heroIdx >= 0 && table.currentPlayerIndex === heroIdx && table.stage !== 'Showdown';
 

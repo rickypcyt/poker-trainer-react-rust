@@ -33,8 +33,8 @@ export class PythonBotService {
       }
     } catch (error) {
       console.error('[Python Bot] Error generating hand ID:', error);
-      // Fallback: generate simple ID
-      const fallbackId = `hand_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // Generate a fallback hand ID if API fails
+      const fallbackId = `fallback_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       this.currentHandId = fallbackId;
       return fallbackId;
     }
@@ -42,6 +42,79 @@ export class PythonBotService {
 
   getCurrentHandId(): string | null {
     return this.currentHandId;
+  }
+
+  async logRoundStart(gameState: TableState): Promise<void> {
+    if (!this.currentHandId) {
+      console.warn('[Python Bot] No hand ID available for round start logging');
+      return;
+    }
+
+    try {
+      const initialData = {
+        hand_number: gameState.handNumber,
+        stage: gameState.stage,
+        dealer_index: gameState.dealerIndex,
+        small_blind: gameState.smallBlind,
+        big_blind: gameState.bigBlind,
+        players_count: gameState.players.length,
+        pot: gameState.pot,
+        timestamp: Date.now(),
+        players: gameState.players.map(p => ({
+          name: p.name,
+          chips: p.chips,
+          is_bot: p.isBot,
+          is_hero: p.isHero
+        }))
+      };
+
+      const response = await fetch(`${this.apiBase}/round_start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          hand_id: this.currentHandId,
+          initial_state: initialData
+        })
+      });
+
+      if (response.ok) {
+        console.log(`[Python Bot] Round start logged for hand ${this.currentHandId}`);
+      } else {
+        console.error('[Python Bot] Error logging round start:', await response.text());
+      }
+    } catch (error) {
+      console.error('[Python Bot] Error logging round start:', error);
+    }
+  }
+
+  async logRoundEnd(_gameState: TableState, roundResults: Record<string, unknown>): Promise<void> {
+    if (!this.currentHandId) {
+      console.warn('[Python Bot] No hand ID available for round end logging');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${this.apiBase}/round_end`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          hand_id: this.currentHandId,
+          final_results: roundResults
+        })
+      });
+
+      if (response.ok) {
+        console.log(`[Python Bot] Round end logged for hand ${this.currentHandId}`);
+      } else {
+        console.error('[Python Bot] Error logging round end:', await response.text());
+      }
+    } catch (error) {
+      console.error('[Python Bot] Error logging round end:', error);
+    }
   }
 
   async logHandComplete(gameState: TableState, winnerInfo: Record<string, unknown>): Promise<void> {

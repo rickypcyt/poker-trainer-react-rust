@@ -46,9 +46,15 @@ export const GameControls: React.FC<GameControlsProps> = ({
     const hero = table.players?.find((p) => p.isHero);
     if (!hero) return;
     const highest = maxBet(table);
+    const toCall = Math.max(0, highest - (hero.bet || 0));
     const minRaise = Math.max(table.bigBlind || 0, highest + (table.bigBlind || 0));
-    setRaiseAmount(minRaise);
-    setShowRaiseDialog(true);
+    const totalNeededForMinRaise = toCall + (minRaise - highest);
+    
+    // Only allow raise if hero has enough chips for min raise
+    if (hero.chips >= totalNeededForMinRaise) {
+      setRaiseAmount(minRaise);
+      setShowRaiseDialog(true);
+    }
   };
 
   const getHero = () => table.players?.[getHeroIndex(table)];
@@ -68,21 +74,11 @@ export const GameControls: React.FC<GameControlsProps> = ({
   return (
     <>
       <div 
-        className={`fixed left-1/2 bottom-4 z-40 w-full max-w-4xl bg-gradient-to-r from-neutral-900 to-neutral-800 text-white rounded-2xl border border-white/10 shadow-2xl overflow-hidden transform transition-all duration-300 ease-out translate-x-[-50%] ${
+        className={`fixed left-0 bottom-0 z-40 w-full bg-gradient-to-r from-neutral-900 to-neutral-800 text-white rounded-t-2xl border border-white/10 shadow-2xl overflow-hidden transform transition-all duration-300 ease-out ${
           showSetup ? 'opacity-50 blur-sm' : ''
         }`}
       >
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-white/10 bg-gradient-to-r from-neutral-800/80 to-neutral-900/80">
-        <div className="flex items-center gap-3">
-          <div className="w-1 h-5 bg-gradient-to-b from-amber-200 to-yellow-400 rounded-full"></div>
-          <h2 className="text-lg font-bold bg-gradient-to-r from-amber-200 to-yellow-400 bg-clip-text text-transparent">
-            Game Controls
-          </h2>
-        </div>
-      </div>
-
-      {/* Body - Horizontal Layout */}
+      {/* Body - Justify-between Layout */}
       <div className="px-6 py-3 flex items-center justify-between gap-4">
       
       {table.dealerDrawInProgress && !table.dealerDrawRevealed ? (
@@ -173,42 +169,88 @@ export const GameControls: React.FC<GameControlsProps> = ({
             >
               Fold
             </button>
+            {(() => {
+              const hero = getHero();
+              const highest = maxBet(table);
+              const toCall = Math.max(0, highest - (hero?.bet || 0));
+              const opponentAllIn = table.players?.some((p) => !p.isHero && !p.hasFolded && p.chips === 0 && (p.bet || 0) === highest);
+              // If opponent is all-in and there's nothing to call, provide a dedicated All-In button
+              if (toCall === 0 && opponentAllIn) {
+                return (
+                  <button
+                    className={`font-semibold px-4 py-3 rounded-xl transition-colors ${
+                      table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)
+                        ? 'bg-white/5 text-white/50 cursor-not-allowed border border-white/10'
+                        : 'bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-300 border border-yellow-500/30'
+                    }`}
+                    onClick={() => handleQuickBet('allin')}
+                    disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table) || (hero?.chips || 0) <= 0}
+                  >
+                    {`All-in $${hero?.chips || 0}`}
+                  </button>
+                );
+              }
+              // Default Call/Check button
+              return (
+                <button 
+                  className={`font-semibold px-4 py-3 rounded-xl transition-colors ${
+                    table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)
+                      ? 'bg-white/5 text-white/50 cursor-not-allowed border border-white/10'
+                      : 'bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30'
+                  }`}
+                  onClick={() => handlePlayerActionWithDialog('Call')}
+                  disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)}
+                >
+                  {(() => {
+                    if (toCall === 0) return 'Check';
+                    if (toCall >= (hero?.chips || 0)) return `All-in $${hero?.chips}`;
+                    return `Call $${toCall}`;
+                  })()}
+                </button>
+              );
+            })()}
             <button 
               className={`font-semibold px-4 py-3 rounded-xl transition-colors ${
                 table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)
                   ? 'bg-white/5 text-white/50 cursor-not-allowed border border-white/10'
-                  : 'bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30'
-              }`}
-              onClick={() => handlePlayerActionWithDialog('Call')}
-              disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)}
-            >
-              {(() => {
-                const hero = getHero();
-                const toCall = Math.max(0, maxBet(table) - (hero?.bet || 0));
-                if (toCall === 0) return 'Check';
-                if (toCall >= (hero?.chips || 0)) return `All-in $${hero?.chips}`;
-                return `Call $${toCall}`;
-              })()}
-            </button>
-            <button 
-              className={`font-semibold px-4 py-3 rounded-xl transition-colors ${
-                table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)
-                  ? 'bg-white/5 text-white/50 cursor-not-allowed border border-white/10'
-                  : 'bg-green-600/20 hover:bg-green-600/30 text-green-300 border border-green-500/30'
+                  : (() => {
+                    const hero = getHero();
+                    const toCall = Math.max(0, maxBet(table) - (hero?.bet || 0));
+                    const highest = maxBet(table);
+                    const minRaise = Math.max(table.bigBlind || 0, highest + (table.bigBlind || 0));
+                    const totalNeededForMinRaise = toCall + (minRaise - highest);
+                    const canRaise = (hero?.chips || 0) >= totalNeededForMinRaise;
+                    return canRaise 
+                      ? 'bg-green-600/20 hover:bg-green-600/30 text-green-300 border border-green-500/30'
+                      : 'bg-white/5 text-white/50 cursor-not-allowed border border-white/10';
+                  })()
               }`}
               onClick={handleRaiseClick}
-              disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table)}
+              disabled={table.players?.[getHeroIndex(table)]?.hasFolded || table.stage === 'Showdown' as TableStage || table.currentPlayerIndex !== getHeroIndex(table) || (() => {
+                const hero = getHero();
+                const toCall = Math.max(0, maxBet(table) - (hero?.bet || 0));
+                const highest = maxBet(table);
+                const minRaise = Math.max(table.bigBlind || 0, highest + (table.bigBlind || 0));
+                const totalNeededForMinRaise = toCall + (minRaise - highest);
+                return (hero?.chips || 0) < totalNeededForMinRaise;
+              })()}
             >
               {(() => {
                 const hero = getHero();
                 const toCall = Math.max(0, maxBet(table) - (hero?.bet || 0));
                 const highest = maxBet(table);
                 const minRaise = Math.max(table.bigBlind || 0, highest + (table.bigBlind || 0));
-                if ((hero?.chips || 0) <= toCall) return 'All-in';
+                const totalNeededForMinRaise = toCall + (minRaise - highest);
+                
+                // If can't even call, show All-in
+                if ((hero?.chips || 0) < toCall) return 'All-in';
+                // If can call but not enough for a min raise, show Call
+                if ((hero?.chips || 0) < totalNeededForMinRaise) return `Call $${toCall}`;
+                // Otherwise can raise
                 return `Raise to $${minRaise}`;
               })()}
             </button>
-          </div>
+            </div>
           )}
         </>
       )}
